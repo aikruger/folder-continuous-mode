@@ -1,8 +1,37 @@
-/*
+.enhanced-continuous-container {
+    height: 100%;
+    overflow-y: auto;
+    padding: 20px;
+}
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.file-container {
+    margin-bottom: 40px;
+    border-bottom: 2px dashed var(--background-modifier-border);
+    padding-bottom: 20px;
+}
 
-If your plugin does not need CSS, delete this file.
+.file-header {
+    margin-bottom: 15px;
+    position: sticky;
+    top: 0;
+    background: var(--background-primary);
+    z-index: 10;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
 
-*/
+.file-title {
+    margin: 0;
+    color: var(--text-accent);
+    font-size: 1.2em;
+}
+
+.scroll-sentinel {
+    pointer-events: none;
+    opacity: 0;
+}
+
+.folder-selector-container {
+    text-align: center;
+    padding: 40px 20px;
+}
