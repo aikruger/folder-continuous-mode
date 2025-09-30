@@ -262,6 +262,12 @@ export class EnhancedContinuousView extends ItemView {
         container.appendChild(await this.createFileElement(file));
     }
 
+    private async appendFilesToDOM(files: TFile[]) {
+        for (const file of files) {
+            await this.appendFileToDOM(file, this.contentContainer);
+        }
+    }
+
     private async prependFilesToDOM(files: TFile[]) {
         const fragment = document.createDocumentFragment();
         for (const file of files.reverse()) fragment.prepend(await this.createFileElement(file));
