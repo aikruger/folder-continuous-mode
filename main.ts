@@ -43,12 +43,15 @@ export default class EnhancedContinuousModePlugin extends Plugin {
     async activateView(folder: TFolder) {
         this.app.workspace.detachLeavesOfType(ENHANCED_CONTINUOUS_VIEW_TYPE);
 
-        await this.app.workspace.getRightLeaf(false).setViewState({
+        const leaf = this.app.workspace.getLeaf('split');
+
+        await leaf.setViewState({
             type: ENHANCED_CONTINUOUS_VIEW_TYPE,
             active: true,
         });
 
-        const leaf = this.app.workspace.getLeavesOfType(ENHANCED_CONTINUOUS_VIEW_TYPE)[0];
+        this.app.workspace.revealLeaf(leaf);
+
         if (leaf.view instanceof EnhancedContinuousView) {
             leaf.view.loadFolder(folder);
         }

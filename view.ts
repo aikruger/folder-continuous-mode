@@ -31,7 +31,7 @@ export class EnhancedContinuousView extends ItemView {
     }
 
     async onOpen() {
-        const container = this.containerEl.children[1];
+        const container = this.containerEl.children[1] as HTMLElement;
         container.empty();
         container.addClass('enhanced-continuous-container');
 
@@ -68,7 +68,7 @@ export class EnhancedContinuousView extends ItemView {
 
     public async loadFolder(folder: TFolder) {
         this.cleanupResources(); // Clean up previous state
-        const container = this.containerEl.children[1];
+        const container = this.containerEl.children[1] as HTMLElement;
         container.empty();
         this.createSentinels(container);
 
@@ -76,7 +76,7 @@ export class EnhancedContinuousView extends ItemView {
         this.updateDisplayText();
 
         this.allFiles = this.app.vault.getMarkdownFiles()
-            .filter(file => file.parent.path === folder.path)
+            .filter(file => file.parent && file.parent.path === folder.path)
             .sort((a, b) => a.name.localeCompare(b.name));
 
         if (this.allFiles.length === 0) {
