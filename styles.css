@@ -35,3 +35,31 @@
     text-align: center;
     padding: 40px 20px;
 }
+
+.scroll-indicator {
+    position: sticky;
+    text-align: center;
+    padding: 5px 0;
+    background-color: var(--background-secondary-alt);
+    z-index: 20;
+    font-size: 1.2em;
+    color: var(--text-muted);
+    display: none;
+    user-select: none;
+}
+
+.top-indicator {
+    top: 0;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.bottom-indicator {
+    bottom: 0;
+    border-top: 1px solid var(--background-modifier-border);
+}
+
+.nav-file-title.is-active-in-continuous-view {
+    background-color: var(--background-secondary-alt);
+    color: var(--text-accent);
+    border-radius: var(--radius-s);
+}

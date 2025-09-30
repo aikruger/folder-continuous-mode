@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, TFile, TFolder, MarkdownRenderer } from 'obsidian';
+import { ItemView, WorkspaceLeaf, TFile, TFolder, MarkdownRenderer, Notice } from 'obsidian';
 import EnhancedContinuousModePlugin from './main';
 import { FolderSuggestionModal } from './folderModal';
 
@@ -13,13 +13,26 @@ export class EnhancedContinuousView extends ItemView {
 
     private topSentinel: HTMLElement;
     private bottomSentinel: HTMLElement;
+    private topIndicator: HTMLElement;
+    private bottomIndicator: HTMLElement;
     private intersectionObserver: IntersectionObserver;
     private contentContainer: HTMLElement;
+    private activeFileObserver: IntersectionObserver;
+    private lastHighlighted: HTMLElement | null = null;
 
     constructor(leaf: WorkspaceLeaf, plugin: EnhancedContinuousModePlugin) {
         super(leaf);
         this.plugin = plugin;
         this.setupIntersectionObserver();
+        this.setupActiveFileObserver();
+
+        this.register(
+            this.app.vault.on('modify', (file) => {
+                if (file instanceof TFile && this.loadedFiles.some(f => f.path === file.path)) {
+                    this.rerenderFile(file);
+                }
+            })
+        );
     }
 
     getViewType(): string {
@@ -35,7 +48,11 @@ export class EnhancedContinuousView extends ItemView {
         container.empty();
         container.addClass('enhanced-continuous-container');
 
-        this.createSentinels(container);
+        this.addAction('document', 'Export as single document', () => {
+            this.exportToSingleFile();
+        });
+
+        this.createScrollElements(container);
 
         if (!this.currentFolder) {
             this.showFolderSelector(container);
@@ -66,18 +83,86 @@ export class EnhancedContinuousView extends ItemView {
         }, options);
     }
 
+    private setupActiveFileObserver() {
+        const options = {
+            root: this.containerEl.querySelector('.enhanced-continuous-container'),
+            rootMargin: '-50% 0px -50% 0px',
+            threshold: 0
+        };
+
+        this.activeFileObserver = new IntersectionObserver((entries) => {
+            entries.forEach((entry) => {
+                if (entry.isIntersecting) {
+                    this.highlightFileInExplorer(entry.target as HTMLElement);
+                }
+            });
+        }, options);
+    }
+
+    private highlightFileInExplorer(fileContainer: HTMLElement) {
+        const filePath = fileContainer.dataset.fileName;
+        if (!filePath) return;
+
+        if (this.lastHighlighted) {
+            this.lastHighlighted.removeClass('is-active-in-continuous-view');
+        }
+
+        const fileExplorerLeaf = this.app.workspace.getLeavesOfType('file-explorer')?.[0];
+        if (fileExplorerLeaf) {
+            const explorerEl = fileExplorerLeaf.view.containerEl;
+            const newHighlightEl = explorerEl.querySelector(`.nav-file-title[data-path="${filePath}"]`) as HTMLElement;
+            if (newHighlightEl) {
+                newHighlightEl.addClass('is-active-in-continuous-view');
+                this.lastHighlighted = newHighlightEl;
+            }
+        }
+    }
+
+    private getSortedFilesInFolder(folder: TFolder): TFile[] {
+        const markdownFiles = this.app.vault.getMarkdownFiles()
+            .filter(file => file.parent && file.parent.path === folder.path);
+
+        const fileExplorerLeaf = this.app.workspace.getLeavesOfType('file-explorer')?.[0];
+        if (!fileExplorerLeaf) {
+            return markdownFiles.sort((a, b) => a.name.localeCompare(b.name));
+        }
+
+        const explorerEl = fileExplorerLeaf.view.containerEl;
+        const folderTitleEl = explorerEl.querySelector(`.nav-folder-title[data-path="${folder.path}"]`);
+        const folderChildrenEl = folderTitleEl?.nextElementSibling;
+
+        if (!folderChildrenEl || !folderChildrenEl.hasClass('nav-folder-children')) {
+            return markdownFiles.sort((a, b) => a.name.localeCompare(b.name));
+        }
+
+        const fileNodes = folderChildrenEl.querySelectorAll('.nav-file-title');
+        if (fileNodes.length === 0) {
+            return markdownFiles.sort((a, b) => a.name.localeCompare(b.name));
+        }
+
+        const sortedPaths = Array.from(fileNodes).map(node => (node as HTMLElement).dataset.path);
+        const fileMap = new Map(markdownFiles.map(f => [f.path, f]));
+
+        const sortedFiles = sortedPaths
+            .map(path => fileMap.get(path))
+            .filter((file): file is TFile => !!file);
+
+        const sortedFilePaths = new Set(sortedFiles.map(f => f.path));
+        const unsortedFiles = markdownFiles.filter(f => !sortedFilePaths.has(f.path));
+
+        return [...sortedFiles, ...unsortedFiles.sort((a, b) => a.name.localeCompare(b.name))];
+    }
+
     public async loadFolder(folder: TFolder) {
-        this.cleanupResources(); // Clean up previous state
+        this.cleanupResources();
         const container = this.containerEl.children[1] as HTMLElement;
         container.empty();
-        this.createSentinels(container);
+        this.createScrollElements(container);
 
         this.currentFolder = folder;
         this.updateDisplayText();
 
-        this.allFiles = this.app.vault.getMarkdownFiles()
-            .filter(file => file.parent && file.parent.path === folder.path)
-            .sort((a, b) => a.name.localeCompare(b.name));
+        this.allFiles = this.getSortedFilesInFolder(folder);
 
         if (this.allFiles.length === 0) {
             this.showEmptyFolderMessage();
@@ -93,16 +178,14 @@ export class EnhancedContinuousView extends ItemView {
         this.loadedFiles = this.allFiles.slice(0, initialCount);
 
         await this.renderFiles();
-        this.updateSentinels();
+        this.updateScrollElements();
     }
 
     private async loadNextFiles() {
-        if (this.currentIndex + this.loadedFiles.length >= this.allFiles.length) {
-            return;
-        }
+        if (this.currentIndex + this.loadedFiles.length >= this.allFiles.length) return;
 
         const spaceLeft = this.plugin.settings.maxFileCount - this.loadedFiles.length;
-        if(spaceLeft <= 0) { // Unload some files to make space
+        if(spaceLeft <= 0) {
             const unloadCount = Math.min(this.plugin.settings.loadUnloadCount, this.loadedFiles.length);
             const removedFiles = this.loadedFiles.splice(0, unloadCount);
             this.removeFilesFromDOM(removedFiles);
@@ -118,19 +201,16 @@ export class EnhancedContinuousView extends ItemView {
             await this.appendFilesToDOM(newFiles);
         }
 
-        this.updateSentinels();
+        this.updateScrollElements();
     }
 
     private async loadPreviousFiles() {
-        if (this.currentIndex === 0) {
-            return;
-        }
+        if (this.currentIndex === 0) return;
 
         const spaceLeft = this.plugin.settings.maxFileCount - this.loadedFiles.length;
-        if(spaceLeft <= 0) { // Unload some files to make space
+        if(spaceLeft <= 0) {
             const unloadCount = Math.min(this.plugin.settings.loadUnloadCount, this.loadedFiles.length);
-            const removedFiles = this.loadedFiles.splice(this.loadedFiles.length - unloadCount, unloadCount);
-            this.removeFilesFromDOM(removedFiles);
+            this.loadedFiles.splice(this.loadedFiles.length - unloadCount, unloadCount).forEach(f => this.removeFileFromDOM(f.path));
         }
 
         const loadCount = this.plugin.settings.loadUnloadCount;
@@ -143,7 +223,7 @@ export class EnhancedContinuousView extends ItemView {
             await this.prependFilesToDOM(newFiles);
         }
 
-        this.updateSentinels();
+        this.updateScrollElements();
     }
 
     private async renderFiles() {
@@ -153,47 +233,41 @@ export class EnhancedContinuousView extends ItemView {
         }
     }
 
+    private async renderFileContent(file: TFile, contentDiv: HTMLElement) {
+        contentDiv.empty();
+        const fileContent = await this.app.vault.cachedRead(file);
+        await MarkdownRenderer.render(this.app, fileContent, contentDiv, file.path, this);
+    }
+
+    private async rerenderFile(file: TFile) {
+        const fileContainer = this.contentContainer.querySelector(`[data-file-name="${file.path}"]`);
+        if (!fileContainer) return;
+
+        const contentDiv = fileContainer.querySelector('.file-content');
+        if (contentDiv) {
+            await this.renderFileContent(file, contentDiv as HTMLElement);
+        }
+    }
+
     private async createFileElement(file: TFile): Promise<HTMLElement> {
         const fileContainer = createDiv('file-container');
         fileContainer.dataset.fileName = file.path;
 
         const header = fileContainer.createDiv('file-header');
-        header.createEl('h2', { text: file.basename, cls: 'file-title' });
+        const titleEl = header.createEl('h2', { text: file.basename, cls: 'file-title' });
+        titleEl.style.cursor = 'pointer';
+        titleEl.addEventListener('click', () => {
+            this.app.workspace.getLeaf('tab').openFile(file);
+        });
 
         const contentDiv = fileContainer.createDiv('file-content');
+        contentDiv.addEventListener('click', () => {
+            this.app.workspace.getLeaf('window').openFile(file);
+        });
 
-        const renderContent = async () => {
-            contentDiv.empty();
-            const fileContent = await this.app.vault.cachedRead(file);
-            await MarkdownRenderer.render(this.app, fileContent, contentDiv, file.path, this);
-        };
+        await this.renderFileContent(file, contentDiv);
 
-        const editContent = async () => {
-            if (contentDiv.querySelector('textarea')) return;
-
-            const fileContent = await this.app.vault.read(file);
-            contentDiv.empty();
-
-            const editor = contentDiv.createEl('textarea');
-            editor.value = fileContent;
-            editor.style.width = '100%';
-            editor.rows = Math.max(15, fileContent.split('\n').length + 2);
-            editor.style.border = '1px solid var(--background-modifier-border)';
-            editor.style.borderRadius = '5px';
-            editor.style.padding = '10px';
-            editor.focus();
-
-            editor.addEventListener('blur', async () => {
-                if (editor.value !== fileContent) {
-                    await this.app.vault.modify(file, editor.value);
-                }
-                await renderContent();
-            });
-        };
-
-        contentDiv.addEventListener('click', editContent);
-
-        await renderContent();
+        this.activeFileObserver.observe(fileContainer);
         return fileContainer;
     }
 
@@ -210,48 +284,46 @@ export class EnhancedContinuousView extends ItemView {
 
     private async prependFilesToDOM(files: TFile[]) {
         const fragment = document.createDocumentFragment();
-        for (const file of files.reverse()) { // Prepend needs reversed order
+        for (const file of files.reverse()) {
             const fileEl = await this.createFileElement(file);
             fragment.prepend(fileEl);
         }
         this.contentContainer.prepend(fragment);
     }
 
-    private removeFilesFromDOM(files: TFile[]) {
-        files.forEach(file => {
-            const element = this.contentContainer.querySelector(`[data-file-name="${file.path}"]`);
-            if (element) {
-                element.remove();
-            }
-        });
+    private removeFileFromDOM(filePath: string) {
+        const element = this.contentContainer.querySelector(`[data-file-name="${filePath}"]`);
+        if (element) {
+            this.activeFileObserver.unobserve(element);
+            element.remove();
+        }
     }
 
-    private createSentinels(container: HTMLElement) {
+    private removeFilesFromDOM(files: TFile[]) {
+        files.forEach(file => this.removeFileFromDOM(file.path));
+    }
+
+    private createScrollElements(container: HTMLElement) {
+        this.topIndicator = container.createDiv({ cls: 'scroll-indicator top-indicator', text: '⇑' });
         this.topSentinel = container.createDiv('scroll-sentinel top-sentinel');
         this.contentContainer = container.createDiv('file-content-container');
         this.bottomSentinel = container.createDiv('scroll-sentinel bottom-sentinel');
+        this.bottomIndicator = container.createDiv({ cls: 'scroll-indicator bottom-indicator', text: '⇓' });
     }
 
-    private updateSentinels() {
+    private updateScrollElements() {
         this.intersectionObserver.disconnect();
-
-        if (this.currentIndex > 0) {
-            this.intersectionObserver.observe(this.topSentinel);
-        }
-        if (this.currentIndex + this.loadedFiles.length < this.allFiles.length) {
-            this.intersectionObserver.observe(this.bottomSentinel);
-        }
+        if (this.currentIndex > 0) this.intersectionObserver.observe(this.topSentinel);
+        if (this.currentIndex + this.loadedFiles.length < this.allFiles.length) this.intersectionObserver.observe(this.bottomSentinel);
+        this.topIndicator.style.display = this.currentIndex > 0 ? 'block' : 'none';
+        this.bottomIndicator.style.display = this.currentIndex + this.loadedFiles.length < this.allFiles.length ? 'block' : 'none';
     }
 
     private showFolderSelector(container: HTMLElement) {
         const selectorContainer = container.createDiv('folder-selector-container');
         selectorContainer.createEl('h3', { text: 'Select a folder to scroll through' });
         const button = selectorContainer.createEl('button', { text: 'Choose Folder', cls: 'mod-cta' });
-        button.onclick = () => {
-            new FolderSuggestionModal(this.app, (folder: TFolder) => {
-                this.plugin.activateView(folder);
-            }).open();
-        };
+        button.onclick = () => new FolderSuggestionModal(this.app, (folder: TFolder) => this.plugin.activateView(folder)).open();
     }
 
     private showEmptyFolderMessage() {
@@ -260,9 +332,13 @@ export class EnhancedContinuousView extends ItemView {
     }
 
     private cleanupResources() {
-        if (this.intersectionObserver) {
-            this.intersectionObserver.disconnect();
+        if (this.intersectionObserver) this.intersectionObserver.disconnect();
+        if (this.activeFileObserver) this.activeFileObserver.disconnect();
+        if (this.lastHighlighted) {
+            this.lastHighlighted.removeClass('is-active-in-continuous-view');
+            this.lastHighlighted = null;
         }
+
         this.loadedFiles = [];
         this.allFiles = [];
         this.currentFolder = null;
@@ -283,10 +359,36 @@ export class EnhancedContinuousView extends ItemView {
 
     private updateDisplayText() {
         const newDisplayText = this.currentFolder ? `Continuous: ${this.currentFolder.name}` : 'Enhanced Continuous View';
-        if (this.getDisplayText() !== newDisplayText) {
-            // This is a bit of a hack to force the display text to update.
-            // There isn't a public API for this.
-            (this.leaf as any).rebuildView();
+        if (this.getDisplayText() !== newDisplayText) (this.leaf as any).rebuildView();
+    }
+
+    private async exportToSingleFile() {
+        if (!this.currentFolder || this.allFiles.length === 0) {
+            new Notice('No folder or files to export.');
+            return;
+        }
+
+        let combinedContent = `# Combined notes from ${this.currentFolder.name}\n\n`;
+
+        for (const file of this.allFiles) {
+            const content = await this.app.vault.read(file);
+            combinedContent += `\n\n---\n\n## ${file.basename}\n\n${content}`;
+        }
+
+        const newFileName = `Combined - ${this.currentFolder.name}.md`;
+        let newFilePath = this.currentFolder.isRoot() ? newFileName : `${this.currentFolder.path}/${newFileName}`;
+
+        try {
+            if (this.app.vault.getAbstractFileByPath(newFilePath)) {
+                new Notice(`File "${newFileName}" already exists. Please rename or remove it first.`);
+                return;
+            }
+            const createdFile = await this.app.vault.create(newFilePath, combinedContent);
+            new Notice(`Successfully exported to "${createdFile.path}".`);
+            this.app.workspace.getLeaf('tab').openFile(createdFile);
+        } catch (error) {
+            console.error("Error exporting to single file:", error);
+            new Notice('Failed to export file.');
         }
     }
 }
