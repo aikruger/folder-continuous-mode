@@ -34,6 +34,21 @@ export default class EnhancedContinuousModePlugin extends Plugin {
                 this.activateView(folder);
             }).open();
         });
+
+        this.registerEvent(
+            this.app.workspace.on('file-menu', (menu, file) => {
+                if (file instanceof TFolder) {
+                    menu.addItem((item) => {
+                        item
+                            .setTitle("Open in continuous view")
+                            .setIcon("scroll")
+                            .onClick(() => {
+                                this.activateView(file as TFolder);
+                            });
+                    });
+                }
+            })
+        );
     }
 
     onunload() {

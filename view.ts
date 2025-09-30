@@ -161,10 +161,39 @@ export class EnhancedContinuousView extends ItemView {
         header.createEl('h2', { text: file.basename, cls: 'file-title' });
 
         const contentDiv = fileContainer.createDiv('file-content');
-        const fileContent = await this.app.vault.cachedRead(file);
 
-        await MarkdownRenderer.render(this.app, fileContent, contentDiv, file.path, this);
+        const renderContent = async () => {
+            contentDiv.empty();
+            const fileContent = await this.app.vault.cachedRead(file);
+            await MarkdownRenderer.render(this.app, fileContent, contentDiv, file.path, this);
+        };
 
+        const editContent = async () => {
+            if (contentDiv.querySelector('textarea')) return;
+
+            const fileContent = await this.app.vault.read(file);
+            contentDiv.empty();
+
+            const editor = contentDiv.createEl('textarea');
+            editor.value = fileContent;
+            editor.style.width = '100%';
+            editor.rows = Math.max(15, fileContent.split('\n').length + 2);
+            editor.style.border = '1px solid var(--background-modifier-border)';
+            editor.style.borderRadius = '5px';
+            editor.style.padding = '10px';
+            editor.focus();
+
+            editor.addEventListener('blur', async () => {
+                if (editor.value !== fileContent) {
+                    await this.app.vault.modify(file, editor.value);
+                }
+                await renderContent();
+            });
+        };
+
+        contentDiv.addEventListener('click', editContent);
+
+        await renderContent();
         return fileContainer;
     }
 
