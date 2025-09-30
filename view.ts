@@ -26,7 +26,7 @@ export class EnhancedContinuousView extends ItemView {
         this.setupIntersectionObserver();
         this.setupActiveFileObserver();
 
-        this.register(
+        this.registerEvent(
             this.app.vault.on('modify', (file) => {
                 if (file instanceof TFile && this.loadedFiles.some(f => f.path === file.path)) {
                     this.rerenderFile(file);
@@ -140,7 +140,9 @@ export class EnhancedContinuousView extends ItemView {
             return markdownFiles.sort((a, b) => a.name.localeCompare(b.name));
         }
 
-        const sortedPaths = Array.from(fileNodes).map(node => (node as HTMLElement).dataset.path);
+        const sortedPaths = Array.from(fileNodes)
+            .map(node => (node as HTMLElement).dataset.path)
+            .filter((path): path is string => !!path);
         const fileMap = new Map(markdownFiles.map(f => [f.path, f]));
 
         const sortedFiles = sortedPaths
