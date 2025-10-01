@@ -228,6 +228,9 @@ export class EnhancedContinuousView extends ItemView {
         await leaf.openFile(file);
 
         const viewState = leaf.getViewState();
+        if (!viewState.state) {
+            viewState.state = {};
+        }
         viewState.state.mode = 'source';
         await leaf.setViewState(viewState);
 
