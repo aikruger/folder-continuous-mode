@@ -63,3 +63,25 @@
     color: var(--text-accent);
     border-radius: var(--radius-s);
 }
+
+.inline-editor-container {
+    min-height: 200px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    padding: 8px;
+    background: var(--background-primary);
+}
+
+.inline-editor-container .view-content {
+    height: auto !important;
+    min-height: 150px;
+}
+
+.file-content {
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.file-content:hover {
+    background-color: var(--background-modifier-hover);
+}
