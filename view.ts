@@ -224,7 +224,7 @@ export class EnhancedContinuousView extends ItemView {
         contentDiv.empty();
         const editorContainer = contentDiv.createDiv('inline-editor-container');
 
-        const leaf = this.app.workspace.createLeafInTabGroup();
+        const leaf = this.app.workspace.getLeaf('tab');
         await leaf.openFile(file);
 
         const viewState = leaf.getViewState();
