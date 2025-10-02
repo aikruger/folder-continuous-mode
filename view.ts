@@ -330,12 +330,12 @@ export class EnhancedContinuousView extends ItemView {
             if (preserveFocusElement && preserveFocusElement.isConnected) {
                 (preserveFocusElement as HTMLElement).focus();
                 
-                // If it was an editor, restore cursor position
+                // CORRECTED: Type-safe cursor position restoration
                 if (preserveCursorPosition) {
                     setTimeout(() => {
-                        const activeLeaf = this.app.workspace.activeLeaf;
-                        if (activeLeaf?.view instanceof MarkdownView && activeLeaf.view.editor) {
-                            activeLeaf.view.editor.setCursor(preserveCursorPosition);
+                        const currentActiveLeaf = this.app.workspace.activeLeaf;
+                        if (currentActiveLeaf?.view instanceof MarkdownView && currentActiveLeaf.view.editor) {
+                            currentActiveLeaf.view.editor.setCursor(preserveCursorPosition);
                         }
                     }, 10);
                 }
