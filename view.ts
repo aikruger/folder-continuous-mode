@@ -230,7 +230,11 @@ export class EnhancedContinuousView extends ItemView {
         contentDiv.empty();
         const editorContainer = contentDiv.createDiv('inline-editor-container');
 
-        const leaf = this.app.workspace.createLeafInParent(this.containerEl, 0);
+        const leaf = this.app.workspace.createLeafInParent(this.app.workspace.rootSplit, -1);
+        const leafParent = leaf.containerEl.parentElement;
+        if (leafParent) {
+            leafParent.style.display = 'none';
+        }
 
         await leaf.openFile(file);
 
@@ -256,7 +260,11 @@ export class EnhancedContinuousView extends ItemView {
 
                 markdownView.editor.focus();
                 this.setupClickOutsideHandler(container);
+            } else {
+                leaf.detach();
             }
+        } else {
+            leaf.detach();
         }
     }
 
