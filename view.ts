@@ -229,13 +229,21 @@ export class EnhancedContinuousView extends ItemView {
         contentDiv.empty();
         const editorContainer = contentDiv.createDiv('inline-editor-container');
 
+        // Create a new leaf in the same split as our view
         const leaf = this.app.workspace.createLeafInParent(this.leaf.parent, -1);
         leaf.setPinned(true);
 
         await leaf.openFile(file);
 
+        // This is the crucial part: hide the leaf's tab/UI elements
+        const leafParent = (leaf.view.containerEl.parentElement as HTMLElement);
+        if (leafParent) {
+            leafParent.style.display = 'none';
+        }
+
         const markdownView = leaf.view as MarkdownView;
         if (markdownView && markdownView.editor) {
+            // Append the entire view container, not just the editor
             editorContainer.appendChild(leaf.view.containerEl);
 
             const cleanupFunctions: (() => void)[] = [];
