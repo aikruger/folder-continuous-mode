@@ -24,6 +24,18 @@
     margin: 0;
     color: var(--text-accent);
     font-size: 1.2em;
+    position: relative;
+}
+
+.file-title:hover::after {
+    content: " (click to open in new tab)";
+    font-size: 0.7em;
+    color: var(--text-muted);
+    font-weight: normal;
+}
+
+.file-content {
+    cursor: default;
 }
 
 .scroll-sentinel {
@@ -62,4 +74,23 @@
     background-color: var(--background-secondary-alt);
     color: var(--text-accent);
     border-radius: var(--radius-s);
+}
+
+/* Focus-preserving visual feedback styles */
+.temporary-highlight {
+    background-color: var(--background-modifier-hover);
+    border-left: 3px solid var(--text-accent);
+    transition: all 0.3s ease;
+}
+
+.file-preview-tooltip {
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    padding: 4px 8px;
+    font-size: 0.8em;
+    color: var(--text-muted);
+    box-shadow: var(--shadow-s);
+    pointer-events: none;
+    z-index: 1000;
 }
