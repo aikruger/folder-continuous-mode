@@ -65,41 +65,23 @@
 }
 
 .inline-editor-container {
-    min-height: 200px;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 4px;
-    padding: 4px; /* Reduced from 8px */
+    border: 2px solid var(--interactive-accent);
+    border-radius: var(--radius-m);
     background: var(--background-primary);
-    margin: 0; /* Ensure no external margins */
+    padding: 10px;
+    margin: 10px 0;
 }
 
-/* Target the editor content specifically */
-.inline-editor-container .view-content {
-    height: auto !important;
-    min-height: 150px;
-    margin: 0 !important;
-    padding: 8px !important; /* Tight padding around text */
+.inline-editor-textarea {
+    background: var(--background-primary) !important;
+    color: var(--text-normal) !important;
+    border: 1px solid var(--background-modifier-border) !important;
+    outline: none !important;
 }
 
-/* Remove excessive padding from markdown editor */
-.inline-editor-container .cm-editor {
-    padding: 4px !important;
-}
-
-.inline-editor-container .cm-content {
-    padding: 0 !important;
-    margin: 0 !important;
-}
-
-/* Reduce header margins in edit mode */
-.inline-editor-container .view-header {
-    display: none !important; /* Hide the header completely in inline mode */
-}
-
-/* Ensure proper text wrapping */
-.inline-editor-container .cm-line {
-    padding-left: 4px !important;
-    padding-right: 4px !important;
+.inline-editor-textarea:focus {
+    border-color: var(--interactive-accent) !important;
+    box-shadow: 0 0 0 2px var(--interactive-accent-hover) !important;
 }
 
 .file-content {

@@ -234,7 +234,7 @@ export class EnhancedContinuousView extends ItemView {
         if (this.leaf.parent instanceof WorkspaceTabs) {
             parentSplit = this.leaf.parent.parent;
         } else {
-            parentSplit = this.leaf.parent;
+            parentSplit = this.leaf.parent as WorkspaceSplit;
         }
 
         const leaf = this.app.workspace.createLeafInParent(parentSplit, -1);

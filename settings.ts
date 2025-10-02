@@ -69,7 +69,7 @@ export class EnhancedContinuousModeSettingTab extends PluginSettingTab {
                 .setValue(this.plugin.settings.scrollThreshold.toString())
                 .onChange(async (value) => {
                     this.plugin.settings.scrollThreshold = Number(value);
-await this.plugin.saveSettings();
+                    await this.plugin.saveSettings();
                 }));
     }
 }
