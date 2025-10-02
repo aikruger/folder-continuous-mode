@@ -26,13 +26,21 @@ export class EnhancedContinuousView extends ItemView {
         leaf: WorkspaceLeaf,
         originalParent: HTMLElement,
         markdownView: MarkdownView,
-        cleanupFunctions?: (() => void)[]
+        cleanupFunctions: (() => void)[]
     } | null = null;
     private clickOutsideHandler: ((event: MouseEvent | KeyboardEvent) => void) | null = null;
+    private debouncedRefocus: () => void;
+
 
     constructor(leaf: WorkspaceLeaf, plugin: EnhancedContinuousModePlugin) {
         super(leaf);
         this.plugin = plugin;
+        this.debouncedRefocus = this.debounce(() => {
+            if (this.activeEditor) {
+                this.app.workspace.setActiveLeaf(this.activeEditor.leaf, { focus: true });
+
+            }
+        }, 100, true);
         this.setupIntersectionObserver();
         this.setupActiveFileObserver();
     }
@@ -56,6 +64,13 @@ export class EnhancedContinuousView extends ItemView {
         if (!this.currentFolder) {
             this.showFolderSelector(container);
         }
+
+        this.registerEvent(this.app.workspace.on('layout-change', this.debouncedRefocus));
+        this.registerEvent(this.app.workspace.on('active-leaf-change', (leaf) => {
+            if (this.activeEditor && leaf !== this.activeEditor.leaf) {
+                this.debouncedRefocus();
+            }
+        }));
     }
 
     async onClose() {
@@ -238,6 +253,7 @@ export class EnhancedContinuousView extends ItemView {
         }
 
         const leaf = this.app.workspace.createLeafInParent(parentSplit, -1);
+        leaf.setPinned(true);
 
         await leaf.openFile(file);
 
@@ -247,7 +263,7 @@ export class EnhancedContinuousView extends ItemView {
         }
 
         const viewState = leaf.getViewState();
-        if(!viewState.state) viewState.state = {};
+        if (!viewState.state) viewState.state = {};
         viewState.state.mode = 'source';
         await leaf.setViewState(viewState);
 
@@ -258,15 +274,25 @@ export class EnhancedContinuousView extends ItemView {
                 const originalParent = editorEl.parentElement;
                 editorContainer.appendChild(editorEl);
 
+                const cleanupFunctions: (() => void)[] = [];
+
+                const focusinHandler = () => {
+                    this.app.workspace.setActiveLeaf(leaf, { focus: true });
+                };
+                editorContainer.addEventListener("focusin", focusinHandler);
+                cleanupFunctions.push(() => editorContainer.removeEventListener("focusin", focusinHandler));
+
+
                 this.activeEditor = {
                     file: file,
                     container: container,
                     leaf: leaf,
                     originalParent: originalParent,
-                    markdownView: markdownView
+                    markdownView: markdownView,
+                    cleanupFunctions: cleanupFunctions
                 };
 
-                markdownView.editor.focus();
+                this.app.workspace.setActiveLeaf(leaf, { focus: true });
                 this.setupClickOutsideHandler(container);
             } else {
                 leaf.detach();
@@ -279,7 +305,9 @@ export class EnhancedContinuousView extends ItemView {
     async cleanupActiveEditor() {
         if (!this.activeEditor) return;
 
-        const { file, container, leaf, originalParent, markdownView } = this.activeEditor;
+        const { file, container, leaf, originalParent, markdownView, cleanupFunctions } = this.activeEditor;
+
+        cleanupFunctions.forEach(fn => fn());
 
         if (markdownView && markdownView.editor) {
             await (markdownView as any).save();
@@ -294,6 +322,7 @@ export class EnhancedContinuousView extends ItemView {
         }
 
         if (leaf) {
+            leaf.setPinned(false);
             leaf.detach();
         }
 
@@ -416,11 +445,17 @@ export class EnhancedContinuousView extends ItemView {
         if(this.contentContainer) this.contentContainer.empty();
     }
 
-    private debounce(func: Function, wait: number) {
-        let timeout: NodeJS.Timeout;
+    private debounce(func: Function, wait: number, immediate = false) {
+        let timeout: NodeJS.Timeout | null;
         return (...args: any[]) => {
-            clearTimeout(timeout);
-            timeout = setTimeout(() => func.apply(this, args), wait);
+            const later = () => {
+                timeout = null;
+                if (!immediate) func.apply(this, args);
+            };
+            const callNow = immediate && !timeout;
+            clearTimeout(timeout as NodeJS.Timeout);
+            timeout = setTimeout(later, wait);
+            if (callNow) func.apply(this, args);
         };
     }
 
