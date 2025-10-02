@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, TFile, TFolder, MarkdownRenderer, Notice } from 'obsidian';
+import { ItemView, WorkspaceLeaf, TFile, TFolder, MarkdownRenderer, Notice, MarkdownView } from 'obsidian';
 import EnhancedContinuousModePlugin from './main';
 import { FolderSuggestionModal } from './folderModal';
 
@@ -222,12 +222,23 @@ export class EnhancedContinuousView extends ItemView {
         event.stopPropagation();
 
         const activeLeaf = this.app.workspace.activeLeaf;
-        const isEditing = activeLeaf?.view?.getState?.().mode?.includes('source');
+        if (!activeLeaf) {
+            this.app.workspace.getLeaf('tab').openFile(file);
+            return;
+        }
 
-        if (this.plugin.settings.preserveEditorFocus && isEditing && activeLeaf?.view?.editor && document.activeElement) {
-            const currentFocusElement = document.activeElement;
-            const currentSelection = activeLeaf.view.editor.getCursor?.();
-            this.openFilePreservingFocus(file, 'tab', currentFocusElement, currentSelection);
+        const view = activeLeaf.view;
+        if (this.plugin.settings.preserveEditorFocus && view instanceof MarkdownView) {
+            const state = view.getState() as { mode: string };
+            const isEditing = state.mode?.includes('source');
+
+            if (isEditing && view.editor && document.activeElement) {
+                const currentFocusElement = document.activeElement;
+                const currentSelection = view.editor.getCursor();
+                this.openFilePreservingFocus(file, 'tab', currentFocusElement, currentSelection);
+            } else {
+                this.app.workspace.getLeaf('tab').openFile(file);
+            }
         } else {
             this.app.workspace.getLeaf('tab').openFile(file);
         }
@@ -255,9 +266,10 @@ export class EnhancedContinuousView extends ItemView {
             if (preserveFocusElement && (preserveFocusElement as HTMLElement).isConnected) {
                 (preserveFocusElement as HTMLElement).focus();
 
-                if (preserveCursorPosition && this.app.workspace.activeLeaf?.view?.editor) {
+                const activeLeaf = this.app.workspace.activeLeaf;
+                if (preserveCursorPosition && activeLeaf && activeLeaf.view instanceof MarkdownView && activeLeaf.view.editor) {
                     setTimeout(() => {
-                        this.app.workspace.activeLeaf?.view?.editor?.setCursor?.(preserveCursorPosition);
+                        activeLeaf.view.editor.setCursor(preserveCursorPosition);
                     }, 10);
                 }
             }
