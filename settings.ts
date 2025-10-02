@@ -6,13 +6,19 @@ export interface EnhancedContinuousModeSettings {
     maxFileCount: number;
     loadUnloadCount: number;
     scrollThreshold: number;
+    preserveEditorFocus: boolean;
+    showFilePreviewTooltips: boolean;
+    clickBehavior: 'preserve-focus' | 'normal' | 'disabled';
 }
 
 export const DEFAULT_SETTINGS: EnhancedContinuousModeSettings = {
     initialFileCount: 5,
     maxFileCount: 7,
     loadUnloadCount: 2,
-    scrollThreshold: 0.1
+    scrollThreshold: 0.1,
+    preserveEditorFocus: true,
+    showFilePreviewTooltips: true,
+    clickBehavior: 'preserve-focus'
 };
 
 export class EnhancedContinuousModeSettingTab extends PluginSettingTab {
@@ -69,6 +75,31 @@ export class EnhancedContinuousModeSettingTab extends PluginSettingTab {
                 .setValue(this.plugin.settings.scrollThreshold.toString())
                 .onChange(async (value) => {
                     this.plugin.settings.scrollThreshold = Number(value);
+                    await this.plugin.saveSettings();
+                }));
+
+        containerEl.createEl('h3', { text: 'Focus Management' });
+
+        new Setting(containerEl)
+            .setName('Preserve Editor Focus')
+            .setDesc('Keep focus in active editors when clicking on continuous view content.')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.preserveEditorFocus)
+                .onChange(async (value) => {
+                    this.plugin.settings.preserveEditorFocus = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName('Click Behavior')
+            .setDesc('How clicks on file content should behave.')
+            .addDropdown(dropdown => dropdown
+                .addOption('preserve-focus', 'Preserve focus (recommended)')
+                .addOption('normal', 'Normal file opening')
+                .addOption('disabled', 'Disable content clicks')
+                .setValue(this.plugin.settings.clickBehavior)
+                .onChange(async (value) => {
+                    this.plugin.settings.clickBehavior = value as any;
                     await this.plugin.saveSettings();
                 }));
     }

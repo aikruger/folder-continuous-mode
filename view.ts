@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, TFile, TFolder, MarkdownRenderer, Notice, MarkdownView, WorkspaceTabs, WorkspaceSplit } from 'obsidian';
+import { ItemView, WorkspaceLeaf, TFile, TFolder, MarkdownRenderer, Notice } from 'obsidian';
 import EnhancedContinuousModePlugin from './main';
 import { FolderSuggestionModal } from './folderModal';
 
@@ -19,16 +19,6 @@ export class EnhancedContinuousView extends ItemView {
     private contentContainer: HTMLElement;
     private activeFileObserver: IntersectionObserver;
     private lastHighlighted: HTMLElement | null = null;
-
-    private activeEditor: {
-        file: TFile,
-        container: HTMLElement,
-        leaf: WorkspaceLeaf,
-        originalParent: HTMLElement,
-        markdownView: MarkdownView,
-        cleanupFunctions?: (() => void)[]
-    } | null = null;
-    private clickOutsideHandler: ((event: MouseEvent | KeyboardEvent) => void) | null = null;
 
     constructor(leaf: WorkspaceLeaf, plugin: EnhancedContinuousModePlugin) {
         super(leaf);
@@ -201,17 +191,25 @@ export class EnhancedContinuousView extends ItemView {
             text: file.basename,
             cls: 'file-title'
         });
-        headerEl.style.cursor = 'pointer';
-        headerEl.addEventListener('click', () =>
-            this.app.workspace.getLeaf('tab').openFile(file)
-        );
 
         const contentEl = fileContainer.createDiv('file-content');
-        contentEl.addEventListener('dblclick', (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            this.switchToEditorView(file, fileContainer);
-        });
+
+        if (this.plugin.settings.clickBehavior !== 'disabled') {
+            headerEl.style.cursor = 'pointer';
+            headerEl.addEventListener('click', (event) => {
+                this.handleTitleClick(file, event);
+            });
+        }
+
+        if (this.plugin.settings.clickBehavior === 'normal') {
+            contentEl.addEventListener('click', () => {
+                this.app.workspace.getLeaf('window').openFile(file);
+            });
+        } else if (this.plugin.settings.clickBehavior === 'preserve-focus') {
+            contentEl.addEventListener('click', (event) => {
+                this.handleContentClick(file, fileContainer, event);
+            });
+        }
 
         await this.renderFileContent(file, contentEl);
         this.activeFileObserver.observe(fileContainer);
@@ -219,130 +217,74 @@ export class EnhancedContinuousView extends ItemView {
         return fileContainer;
     }
 
-    async switchToEditorView(file: TFile, container: HTMLElement) {
-        if (this.activeEditor) {
-            await this.cleanupActiveEditor();
-        }
+    private handleTitleClick(file: TFile, event: MouseEvent) {
+        event.preventDefault();
+        event.stopPropagation();
 
-        const contentDiv = container.querySelector('.file-content') as HTMLElement;
-        if (!contentDiv) return;
+        const activeLeaf = this.app.workspace.activeLeaf;
+        const isEditing = activeLeaf?.view?.getState?.().mode?.includes('source');
 
-        contentDiv.empty();
-        const editorContainer = contentDiv.createDiv('inline-editor-container');
-
-        let parentSplit: WorkspaceSplit;
-        if (this.leaf.parent instanceof WorkspaceTabs) {
-            parentSplit = this.leaf.parent.parent;
+        if (this.plugin.settings.preserveEditorFocus && isEditing && activeLeaf?.view?.editor && document.activeElement) {
+            const currentFocusElement = document.activeElement;
+            const currentSelection = activeLeaf.view.editor.getCursor?.();
+            this.openFilePreservingFocus(file, 'tab', currentFocusElement, currentSelection);
         } else {
-            parentSplit = this.leaf.parent as WorkspaceSplit;
-        }
-
-        const leaf = this.app.workspace.createLeafInParent(parentSplit, -1);
-
-        await leaf.openFile(file);
-
-        const leafParent = (leaf.view.containerEl.parentElement as HTMLElement);
-        if (leafParent) {
-            leafParent.style.display = 'none';
-        }
-
-        const viewState = leaf.getViewState();
-        if(!viewState.state) viewState.state = {};
-        viewState.state.mode = 'source';
-        await leaf.setViewState(viewState);
-
-        const markdownView = leaf.view as MarkdownView;
-        if (markdownView && markdownView.editor) {
-            const editorEl = (markdownView.containerEl as any).querySelector('.view-content');
-            if (editorEl) {
-                const originalParent = editorEl.parentElement;
-                editorContainer.appendChild(editorEl);
-
-                this.activeEditor = {
-                    file: file,
-                    container: container,
-                    leaf: leaf,
-                    originalParent: originalParent,
-                    markdownView: markdownView
-                };
-
-                markdownView.editor.focus();
-                this.setupClickOutsideHandler(container);
-            } else {
-                leaf.detach();
-            }
-        } else {
-            leaf.detach();
+            this.app.workspace.getLeaf('tab').openFile(file);
         }
     }
 
-    async cleanupActiveEditor() {
-        if (!this.activeEditor) return;
-
-        const { file, container, leaf, originalParent, markdownView } = this.activeEditor;
-
-        if (markdownView && markdownView.editor) {
-            await (markdownView as any).save();
-            await new Promise(resolve => setTimeout(resolve, 100));
+    private handleContentClick(file: TFile, fileContainer: HTMLElement, event: MouseEvent) {
+        if ((event.target as HTMLElement).closest('a, button, input, textarea, [contenteditable]')) {
+            return;
         }
+        event.preventDefault();
+        event.stopPropagation();
 
-        if (originalParent) {
-            const editorEl = container.querySelector('.view-content');
-            if (editorEl) {
-                originalParent.appendChild(editorEl);
-            }
-        }
+        this.highlightFileTemporarily(fileContainer);
 
-        if (leaf) {
-            leaf.detach();
-        }
-
-        const contentDiv = container.querySelector('.file-content') as HTMLElement;
-        if (contentDiv) {
-            contentDiv.empty();
-            try {
-                const updatedContent = await this.app.vault.cachedRead(file);
-                await MarkdownRenderer.render(this.app, updatedContent, contentDiv, file.path, this);
-            } catch (error) {
-                console.error('Error refreshing content:', error);
-                await this.renderFileContent(file, contentDiv);
-            }
-        }
-
-        this.activeEditor = null;
-
-        if (this.clickOutsideHandler) {
-            document.removeEventListener('click', this.clickOutsideHandler, true);
-            document.removeEventListener('keydown', this.clickOutsideHandler);
-            this.clickOutsideHandler = null;
+        if (this.plugin.settings.showFilePreviewTooltips) {
+            this.showFilePreview(file, event.clientX, event.clientY);
         }
     }
 
-    setupClickOutsideHandler(container: HTMLElement) {
-        this.clickOutsideHandler = (event: MouseEvent | KeyboardEvent) => {
-            if (event instanceof MouseEvent) {
-                const target = event.target as HTMLElement;
-                if (target.closest('.modal') ||
-                    target.closest('.suggestion-container') ||
-                    target.closest('.tooltip') ||
-                    target.closest('.popover')) {
-                    return;
-                }
+    private async openFilePreservingFocus(file: TFile, leafType: 'tab' | 'window', preserveFocusElement?: Element | null, preserveCursorPosition?: any) {
+        try {
+            const newLeaf = this.app.workspace.getLeaf(leafType);
+            await newLeaf.openFile(file, { active: false });
 
-                if (!container.contains(target)) {
-                    this.cleanupActiveEditor();
-                }
-            } else if (event instanceof KeyboardEvent) {
-                if (event.key === 'Escape') {
-                    this.cleanupActiveEditor();
+            if (preserveFocusElement && (preserveFocusElement as HTMLElement).isConnected) {
+                (preserveFocusElement as HTMLElement).focus();
+
+                if (preserveCursorPosition && this.app.workspace.activeLeaf?.view?.editor) {
+                    setTimeout(() => {
+                        this.app.workspace.activeLeaf?.view?.editor?.setCursor?.(preserveCursorPosition);
+                    }, 10);
                 }
             }
-        };
+        } catch (error) {
+            console.error('Error opening file while preserving focus:', error);
+            this.app.workspace.getLeaf(leafType).openFile(file);
+        }
+    }
+
+    private highlightFileTemporarily(fileContainer: HTMLElement) {
+        fileContainer.addClass('temporary-highlight');
+        setTimeout(() => {
+            fileContainer.removeClass('temporary-highlight');
+        }, 1000);
+    }
+
+    private showFilePreview(file: TFile, x: number, y: number) {
+        const tooltip = document.body.createDiv('file-preview-tooltip');
+        tooltip.textContent = `Click title to open "${file.basename}" in new tab`;
+        tooltip.style.position = 'fixed';
+        tooltip.style.left = `${x + 10}px`;
+        tooltip.style.top = `${y - 30}px`;
+        tooltip.style.zIndex = '1000';
 
         setTimeout(() => {
-            document.addEventListener('click', this.clickOutsideHandler!, true);
-            document.addEventListener('keydown', this.clickOutsideHandler!);
-        }, 100);
+            tooltip.remove();
+        }, 2000);
     }
 
     private async appendFileToDOM(file: TFile, container: HTMLElement) {
@@ -402,7 +344,6 @@ export class EnhancedContinuousView extends ItemView {
     }
 
     private async cleanupResources() {
-        await this.cleanupActiveEditor();
         if (this.intersectionObserver) this.intersectionObserver.disconnect();
         if (this.activeFileObserver) this.activeFileObserver.disconnect();
         if (this.lastHighlighted) {
