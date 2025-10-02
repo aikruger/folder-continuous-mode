@@ -230,13 +230,14 @@ export class EnhancedContinuousView extends ItemView {
         contentDiv.empty();
         const editorContainer = contentDiv.createDiv('inline-editor-container');
 
-        const leaf = this.app.workspace.createLeafInParent(this.app.workspace.rootSplit, -1);
-        const leafParent = leaf.containerEl.parentElement;
+        const leaf = this.app.workspace.createLeafInParent(this.leaf.parentSplit, -1);
+
+        await leaf.openFile(file);
+
+        const leafParent = (leaf.view.containerEl.parentElement as HTMLElement);
         if (leafParent) {
             leafParent.style.display = 'none';
         }
-
-        await leaf.openFile(file);
 
         const viewState = leaf.getViewState();
         if(!viewState.state) viewState.state = {};
