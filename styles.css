@@ -68,13 +68,38 @@
     min-height: 200px;
     border: 1px solid var(--background-modifier-border);
     border-radius: 4px;
-    padding: 8px;
+    padding: 4px; /* Reduced from 8px */
     background: var(--background-primary);
+    margin: 0; /* Ensure no external margins */
 }
 
+/* Target the editor content specifically */
 .inline-editor-container .view-content {
     height: auto !important;
     min-height: 150px;
+    margin: 0 !important;
+    padding: 8px !important; /* Tight padding around text */
+}
+
+/* Remove excessive padding from markdown editor */
+.inline-editor-container .cm-editor {
+    padding: 4px !important;
+}
+
+.inline-editor-container .cm-content {
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+/* Reduce header margins in edit mode */
+.inline-editor-container .view-header {
+    display: none !important; /* Hide the header completely in inline mode */
+}
+
+/* Ensure proper text wrapping */
+.inline-editor-container .cm-line {
+    padding-left: 4px !important;
+    padding-right: 4px !important;
 }
 
 .file-content {

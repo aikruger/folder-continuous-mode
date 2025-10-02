@@ -20,9 +20,15 @@ export class EnhancedContinuousView extends ItemView {
     private activeFileObserver: IntersectionObserver;
     private lastHighlighted: HTMLElement | null = null;
 
-    private activeEditor: { file: TFile, container: HTMLElement, leaf: WorkspaceLeaf, originalParent: HTMLElement, markdownView: MarkdownView } | null = null;
+    private activeEditor: {
+        file: TFile,
+        container: HTMLElement,
+        leaf: WorkspaceLeaf,
+        originalParent: HTMLElement,
+        markdownView: MarkdownView,
+        cleanupFunctions?: (() => void)[]
+    } | null = null;
     private clickOutsideHandler: ((event: MouseEvent | KeyboardEvent) => void) | null = null;
-
 
     constructor(leaf: WorkspaceLeaf, plugin: EnhancedContinuousModePlugin) {
         super(leaf);
@@ -224,13 +230,12 @@ export class EnhancedContinuousView extends ItemView {
         contentDiv.empty();
         const editorContainer = contentDiv.createDiv('inline-editor-container');
 
-        const leaf = this.app.workspace.getLeaf('tab');
+        const leaf = this.app.workspace.createLeafInParent(this.containerEl, 0);
+
         await leaf.openFile(file);
 
         const viewState = leaf.getViewState();
-        if (!viewState.state) {
-            viewState.state = {};
-        }
+        if(!viewState.state) viewState.state = {};
         viewState.state.mode = 'source';
         await leaf.setViewState(viewState);
 
@@ -262,6 +267,7 @@ export class EnhancedContinuousView extends ItemView {
 
         if (markdownView && markdownView.editor) {
             await (markdownView as any).save();
+            await new Promise(resolve => setTimeout(resolve, 100));
         }
 
         if (originalParent) {
@@ -278,13 +284,19 @@ export class EnhancedContinuousView extends ItemView {
         const contentDiv = container.querySelector('.file-content') as HTMLElement;
         if (contentDiv) {
             contentDiv.empty();
-            await this.renderFileContent(file, contentDiv);
+            try {
+                const updatedContent = await this.app.vault.cachedRead(file);
+                await MarkdownRenderer.render(this.app, updatedContent, contentDiv, file.path, this);
+            } catch (error) {
+                console.error('Error refreshing content:', error);
+                await this.renderFileContent(file, contentDiv);
+            }
         }
 
         this.activeEditor = null;
 
         if (this.clickOutsideHandler) {
-            document.removeEventListener('click', this.clickOutsideHandler);
+            document.removeEventListener('click', this.clickOutsideHandler, true);
             document.removeEventListener('keydown', this.clickOutsideHandler);
             this.clickOutsideHandler = null;
         }
@@ -292,17 +304,27 @@ export class EnhancedContinuousView extends ItemView {
 
     setupClickOutsideHandler(container: HTMLElement) {
         this.clickOutsideHandler = (event: MouseEvent | KeyboardEvent) => {
-            if (event instanceof MouseEvent && !container.contains(event.target as Node)) {
-                this.cleanupActiveEditor();
-            }
+            if (event instanceof MouseEvent) {
+                const target = event.target as HTMLElement;
+                if (target.closest('.modal') ||
+                    target.closest('.suggestion-container') ||
+                    target.closest('.tooltip') ||
+                    target.closest('.popover')) {
+                    return;
+                }
 
-            if (event instanceof KeyboardEvent && event.key === 'Escape') {
-                this.cleanupActiveEditor();
+                if (!container.contains(target)) {
+                    this.cleanupActiveEditor();
+                }
+            } else if (event instanceof KeyboardEvent) {
+                if (event.key === 'Escape') {
+                    this.cleanupActiveEditor();
+                }
             }
         };
 
         setTimeout(() => {
-            document.addEventListener('click', this.clickOutsideHandler!);
+            document.addEventListener('click', this.clickOutsideHandler!, true);
             document.addEventListener('keydown', this.clickOutsideHandler!);
         }, 100);
     }
