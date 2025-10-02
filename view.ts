@@ -19,6 +19,8 @@ export class EnhancedContinuousView extends ItemView {
     private contentContainer: HTMLElement;
     private activeFileObserver: IntersectionObserver;
     private lastHighlighted: HTMLElement | null = null;
+    private focusLockActive: boolean = false;
+    private currentEditingElement: HTMLElement | null = null;
 
     constructor(leaf: WorkspaceLeaf, plugin: EnhancedContinuousModePlugin) {
         super(leaf);
@@ -211,6 +213,22 @@ export class EnhancedContinuousView extends ItemView {
             });
         }
 
+        if (this.plugin.settings.doubleClickToEdit) {
+            contentEl.addEventListener('dblclick', async (event) => {
+                if ((event.target as HTMLElement).closest('a, button, input, textarea, [contenteditable]')) {
+                    return;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+
+                const editor = this.createInPlaceEditor(fileContainer, file);
+                const content = await this.app.vault.read(file);
+                editor.value = content;
+                this.enterEditMode(editor, fileContainer);
+                this.setupExitHandlers(editor, fileContainer, file);
+            });
+        }
+
         await this.renderFileContent(file, contentEl);
         this.activeFileObserver.observe(fileContainer);
 
@@ -244,6 +262,21 @@ export class EnhancedContinuousView extends ItemView {
         }
     }
 
+    private createInPlaceEditor(fileContainer: HTMLElement, file: TFile): HTMLTextAreaElement {
+        const contentDiv = fileContainer.querySelector('.file-content') as HTMLElement;
+        contentDiv.empty();
+
+        const editorContainer = contentDiv.createDiv('inline-editor-container');
+        const textarea = editorContainer.createEl('textarea', {
+            cls: 'inline-editor-textarea'
+        });
+
+        // CRITICAL: Implement focus lock immediately
+        this.implementFocusLock(textarea, fileContainer);
+
+        return textarea;
+    }
+
     private handleContentClick(file: TFile, fileContainer: HTMLElement, event: MouseEvent) {
         if ((event.target as HTMLElement).closest('a, button, input, textarea, [contenteditable]')) {
             return;
@@ -256,6 +289,185 @@ export class EnhancedContinuousView extends ItemView {
         if (this.plugin.settings.showFilePreviewTooltips) {
             this.showFilePreview(file, event.clientX, event.clientY);
         }
+    }
+
+    private implementFocusLock(textarea: HTMLTextAreaElement, container: HTMLElement) {
+        this.focusLockActive = true;
+        this.currentEditingElement = textarea;
+
+        // Force and maintain focus
+        textarea.focus();
+
+        // Prevent focus loss through aggressive re-focusing
+        const maintainFocus = () => {
+            if (this.focusLockActive && document.activeElement !== textarea) {
+                textarea.focus();
+            }
+        };
+
+        // Multiple focus maintenance strategies
+        const focusInterval = setInterval(maintainFocus, 100);
+
+        // Store cleanup function
+        (textarea as any)._focusCleanup = () => {
+            clearInterval(focusInterval);
+            this.focusLockActive = false;
+            this.currentEditingElement = null;
+        };
+    }
+
+    private setupEventBlocking(textarea: HTMLTextAreaElement, container: HTMLElement) {
+        // Block all focus-stealing events during editing
+        const preventFocusLoss = (event: Event) => {
+            if (this.focusLockActive && event.target !== textarea) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                textarea.focus();
+            }
+        };
+
+        // Capture events at document level
+        const eventTypes = ['mousedown', 'mouseup', 'click', 'focus', 'blur', 'keydown'];
+
+        eventTypes.forEach(eventType => {
+            document.addEventListener(eventType, preventFocusLoss, true);
+        });
+
+        // Store cleanup
+        (textarea as any)._eventCleanup = () => {
+            eventTypes.forEach(eventType => {
+                document.removeEventListener(eventType, preventFocusLoss, true);
+            });
+        };
+    }
+
+    private overrideObsidianFocus(textarea: HTMLTextAreaElement) {
+        // Override setActiveLeaf temporarily
+        const originalSetActiveLeaf = this.app.workspace.setActiveLeaf.bind(this.app.workspace);
+
+        this.app.workspace.setActiveLeaf = (leaf: WorkspaceLeaf, pushHistoryOrParams?: boolean | { focus?: boolean }, focus?: boolean): void => {
+            // Block setActiveLeaf calls during editing
+            if (this.focusLockActive) {
+                textarea.focus();
+                return;
+            }
+
+            // Handle the two overloads of setActiveLeaf
+            if (typeof pushHistoryOrParams === 'boolean') {
+                (originalSetActiveLeaf as any)(leaf, pushHistoryOrParams, focus);
+            } else {
+                (originalSetActiveLeaf as any)(leaf, pushHistoryOrParams);
+            }
+        };
+
+        // Store cleanup
+        (textarea as any)._obsidianCleanup = () => {
+            this.app.workspace.setActiveLeaf = originalSetActiveLeaf;
+        };
+    }
+
+    private enterEditMode(textarea: HTMLTextAreaElement, container: HTMLElement) {
+        // Mark container as actively editing
+        this.containerEl.addClass('editing-active');
+
+        // Create focus lock overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'focus-lock-overlay';
+        document.body.appendChild(overlay);
+
+        // Redirect overlay clicks to textarea
+        overlay.addEventListener('click', () => {
+            textarea.focus();
+        });
+
+        // Implement all focus management strategies
+        this.implementFocusLock(textarea, container);
+        this.setupEventBlocking(textarea, container);
+        this.overrideObsidianFocus(textarea);
+
+        // Store overlay for cleanup
+        (textarea as any)._overlay = overlay;
+    }
+
+    private exitEditMode(textarea: HTMLTextAreaElement, container: HTMLElement) {
+        // Clean up all focus management
+        if ((textarea as any)._focusCleanup) {
+            (textarea as any)._focusCleanup();
+        }
+        if ((textarea as any)._eventCleanup) {
+            (textarea as any)._eventCleanup();
+        }
+        if ((textarea as any)._obsidianCleanup) {
+            (textarea as any)._obsidianCleanup();
+        }
+
+        // Remove overlay
+        const overlay = (textarea as any)._overlay;
+        if (overlay) {
+            overlay.remove();
+        }
+
+        // Remove editing class
+        this.containerEl.removeClass('editing-active');
+
+        // Reset state
+        this.focusLockActive = false;
+        this.currentEditingElement = null;
+    }
+
+    private setupExitHandlers(textarea: HTMLTextAreaElement, container: HTMLElement, file: TFile) {
+        let isExiting = false;
+
+        const handleExit = async () => {
+            if (isExiting) return;
+            isExiting = true;
+
+            try {
+                // Save the content
+                const content = textarea.value;
+                await this.app.vault.modify(file, content);
+
+                // Exit edit mode FIRST
+                this.exitEditMode(textarea, container);
+
+                // Then re-render
+                const contentDiv = container.querySelector('.file-content') as HTMLElement;
+                await this.renderFileContent(file, contentDiv);
+
+            } catch (error) {
+                console.error('Error saving file:', error);
+                new Notice('Failed to save file');
+            }
+        };
+
+        // Exit on Escape
+        textarea.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                handleExit();
+            }
+        });
+
+        // Exit on Ctrl+Enter (save shortcut)
+        textarea.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                event.preventDefault();
+                handleExit();
+            }
+        });
+
+        // Enhanced blur detection - but with delay to prevent accidental exits
+        let blurTimeout: NodeJS.Timeout;
+        textarea.addEventListener('blur', () => {
+            blurTimeout = setTimeout(() => {
+                if (!this.focusLockActive) return; // Already exited
+                handleExit();
+            }, 200); // 200ms delay
+        });
+
+        textarea.addEventListener('focus', () => {
+            clearTimeout(blurTimeout);
+        });
     }
 
     private async openFilePreservingFocus(file: TFile, leafType: 'tab' | 'window', preserveFocusElement?: Element | null, preserveCursorPosition?: any) {

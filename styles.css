@@ -72,24 +72,52 @@
     border-radius: var(--radius-s);
 }
 
-.inline-editor-container {
-    border: 2px solid var(--interactive-accent);
-    border-radius: var(--radius-m);
-    background: var(--background-primary);
-    padding: 10px;
-    margin: 10px 0;
-}
-
 .inline-editor-textarea {
     background: var(--background-primary) !important;
     color: var(--text-normal) !important;
-    border: 1px solid var(--background-modifier-border) !important;
+    border: 2px solid var(--interactive-accent) !important;
     outline: none !important;
+    resize: vertical !important;
+    font-family: var(--font-monospace) !important;
+    font-size: var(--font-text-size) !important;
+    line-height: var(--line-height-normal) !important;
+    padding: 10px !important;
+    width: 100% !important;
+    min-height: 100px !important;
+    /* CRITICAL: Prevent pointer events on other elements */
+    pointer-events: auto !important;
+    position: relative !important;
+    z-index: 9999 !important;
 }
 
 .inline-editor-textarea:focus {
     border-color: var(--interactive-accent) !important;
-    box-shadow: 0 0 0 2px var(--interactive-accent-hover) !important;
+    box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.3) !important;
+    /* Additional visual emphasis */
+    background: var(--background-primary-alt) !important;
+}
+
+/* Block interactions with other elements during editing */
+.enhanced-continuous-container.editing-active {
+    pointer-events: none;
+}
+
+.enhanced-continuous-container.editing-active .inline-editor-container {
+    pointer-events: auto;
+    position: relative;
+    z-index: 10000;
+}
+
+/* Overlay to prevent clicks elsewhere */
+.focus-lock-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.01);
+    z-index: 9998;
+    pointer-events: auto;
 }
 
 .file-content {

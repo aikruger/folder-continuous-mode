@@ -9,6 +9,7 @@ export interface EnhancedContinuousModeSettings {
     preserveEditorFocus: boolean;
     showFilePreviewTooltips: boolean;
     clickBehavior: 'preserve-focus' | 'normal' | 'disabled';
+    doubleClickToEdit: boolean;
 }
 
 export const DEFAULT_SETTINGS: EnhancedContinuousModeSettings = {
@@ -18,7 +19,8 @@ export const DEFAULT_SETTINGS: EnhancedContinuousModeSettings = {
     scrollThreshold: 0.1,
     preserveEditorFocus: true,
     showFilePreviewTooltips: true,
-    clickBehavior: 'preserve-focus'
+    clickBehavior: 'preserve-focus',
+    doubleClickToEdit: true
 };
 
 export class EnhancedContinuousModeSettingTab extends PluginSettingTab {
@@ -100,6 +102,16 @@ export class EnhancedContinuousModeSettingTab extends PluginSettingTab {
                 .setValue(this.plugin.settings.clickBehavior)
                 .onChange(async (value) => {
                     this.plugin.settings.clickBehavior = value as any;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName('Double-click to Edit')
+            .setDesc('Enable in-place editing by double-clicking on file content.')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.doubleClickToEdit)
+                .onChange(async (value) => {
+                    this.plugin.settings.doubleClickToEdit = value;
                     await this.plugin.saveSettings();
                 }));
     }
