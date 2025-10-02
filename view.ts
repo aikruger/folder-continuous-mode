@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, TFile, TFolder, MarkdownRenderer, Notice } from 'obsidian';
+import { ItemView, WorkspaceLeaf, TFile, TFolder, MarkdownRenderer, Notice, MarkdownView } from 'obsidian';
 import EnhancedContinuousModePlugin from './main';
 import { FolderSuggestionModal } from './folderModal';
 
@@ -258,19 +258,117 @@ export class EnhancedContinuousView extends ItemView {
         const header = fileContainer.createDiv('file-header');
         const titleEl = header.createEl('h2', { text: file.basename, cls: 'file-title' });
         titleEl.style.cursor = 'pointer';
-        titleEl.addEventListener('click', () => {
-            this.app.workspace.getLeaf('tab').openFile(file);
+        
+        // Focus-preserving title click handler
+        titleEl.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            
+            const activeLeaf = this.app.workspace.activeLeaf;
+            const isMarkdownView = activeLeaf?.view instanceof MarkdownView;
+            const isEditingMode = isMarkdownView && 
+                (activeLeaf.view.getMode() === 'source' || activeLeaf.view.getMode() === 'live');
+            
+            if (this.plugin.settings.preserveEditorFocus && isEditingMode && activeLeaf.view.editor && document.activeElement) {
+                // Store current focus state
+                const currentFocusElement = document.activeElement;
+                const currentSelection = activeLeaf.view.editor.getCursor();
+                
+                // Open file without stealing focus
+                this.openFilePreservingFocus(file, 'tab', currentFocusElement, currentSelection);
+            } else {
+                // Safe to open normally when no active editing
+                this.app.workspace.getLeaf('tab').openFile(file);
+            }
         });
 
         const contentDiv = fileContainer.createDiv('file-content');
-        contentDiv.addEventListener('click', () => {
-            this.app.workspace.getLeaf('window').openFile(file);
+        
+        // Focus-preserving content click handler
+        contentDiv.addEventListener('click', (event) => {
+            // Only handle clicks that aren't on interactive elements
+            const target = event.target as HTMLElement;
+            if (target.closest('a, button, input, textarea, [contenteditable]')) {
+                return; // Let interactive elements handle their own clicks
+            }
+            
+            event.preventDefault();
+            event.stopPropagation();
+            
+            const activeLeaf = this.app.workspace.activeLeaf;
+            const isMarkdownView = activeLeaf?.view instanceof MarkdownView;
+            const isEditingMode = isMarkdownView && 
+                (activeLeaf.view.getMode() === 'source' || activeLeaf.view.getMode() === 'live');
+            
+            if (this.plugin.settings.preserveEditorFocus && isEditingMode) {
+                // Provide visual feedback without opening the file
+                this.highlightFileTemporarily(fileContainer);
+                this.showFilePreview(file, event.clientX, event.clientY);
+            } else {
+                // Normal behavior when no active editing
+                this.app.workspace.getLeaf('window').openFile(file);
+            }
         });
 
         await this.renderFileContent(file, contentDiv);
-
         this.activeFileObserver.observe(fileContainer);
         return fileContainer;
+    }
+
+    private async openFilePreservingFocus(
+        file: TFile, 
+        leafType: 'tab' | 'window', 
+        preserveFocusElement?: Element | null,
+        preserveCursorPosition?: any
+    ) {
+        try {
+            // Open the file in background
+            const newLeaf = this.app.workspace.getLeaf(leafType);
+            await newLeaf.openFile(file, { active: false });
+            
+            // Restore focus to the original element
+            if (preserveFocusElement && preserveFocusElement.isConnected) {
+                (preserveFocusElement as HTMLElement).focus();
+                
+                // If it was an editor, restore cursor position
+                if (preserveCursorPosition) {
+                    setTimeout(() => {
+                        const activeLeaf = this.app.workspace.activeLeaf;
+                        if (activeLeaf?.view instanceof MarkdownView && activeLeaf.view.editor) {
+                            activeLeaf.view.editor.setCursor(preserveCursorPosition);
+                        }
+                    }, 10);
+                }
+            }
+        } catch (error) {
+            console.error('Error opening file while preserving focus:', error);
+            // Fallback to normal opening
+            this.app.workspace.getLeaf(leafType).openFile(file);
+        }
+    }
+
+    private highlightFileTemporarily(fileContainer: HTMLElement) {
+        fileContainer.addClass('temporary-highlight');
+        setTimeout(() => {
+            fileContainer.removeClass('temporary-highlight');
+        }, 1000);
+    }
+
+    private showFilePreview(file: TFile, x: number, y: number) {
+        // Create a small tooltip showing file info
+        const tooltip = document.createElement('div');
+        tooltip.className = 'file-preview-tooltip';
+        tooltip.textContent = `Click title to open "${file.basename}" in new tab`;
+        tooltip.style.position = 'fixed';
+        tooltip.style.left = `${x + 10}px`;
+        tooltip.style.top = `${y - 30}px`;
+        tooltip.style.zIndex = '1000';
+        
+        document.body.appendChild(tooltip);
+        
+        setTimeout(() => {
+            tooltip.remove();
+        }, 2000);
     }
 
     private async appendFileToDOM(file: TFile, container: HTMLElement) {
