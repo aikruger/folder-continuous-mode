@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, TFile, TFolder, MarkdownRenderer, Notice, MarkdownView } from 'obsidian';
+import { ItemView, WorkspaceLeaf, TFile, TFolder, MarkdownRenderer, Notice, MarkdownView, WorkspaceTabs, WorkspaceSplit } from 'obsidian';
 import EnhancedContinuousModePlugin from './main';
 import { FolderSuggestionModal } from './folderModal';
 
@@ -230,7 +230,14 @@ export class EnhancedContinuousView extends ItemView {
         contentDiv.empty();
         const editorContainer = contentDiv.createDiv('inline-editor-container');
 
-        const leaf = this.app.workspace.createLeafInParent(this.leaf.parentSplit, -1);
+        let parentSplit: WorkspaceSplit;
+        if (this.leaf.parent instanceof WorkspaceTabs) {
+            parentSplit = this.leaf.parent.parent;
+        } else {
+            parentSplit = this.leaf.parent;
+        }
+
+        const leaf = this.app.workspace.createLeafInParent(parentSplit, -1);
 
         await leaf.openFile(file);
 
