@@ -24,23 +24,14 @@ export class EnhancedContinuousView extends ItemView {
         file: TFile,
         container: HTMLElement,
         leaf: WorkspaceLeaf,
-        originalParent: HTMLElement,
         markdownView: MarkdownView,
         cleanupFunctions: (() => void)[]
     } | null = null;
     private clickOutsideHandler: ((event: MouseEvent | KeyboardEvent) => void) | null = null;
-    private debouncedRefocus: () => void;
-
 
     constructor(leaf: WorkspaceLeaf, plugin: EnhancedContinuousModePlugin) {
         super(leaf);
         this.plugin = plugin;
-        this.debouncedRefocus = this.debounce(() => {
-            if (this.activeEditor) {
-                this.app.workspace.setActiveLeaf(this.activeEditor.leaf, { focus: true });
-
-            }
-        }, 100, true);
         this.setupIntersectionObserver();
         this.setupActiveFileObserver();
     }
@@ -64,13 +55,6 @@ export class EnhancedContinuousView extends ItemView {
         if (!this.currentFolder) {
             this.showFolderSelector(container);
         }
-
-        this.registerEvent(this.app.workspace.on('layout-change', this.debouncedRefocus));
-        this.registerEvent(this.app.workspace.on('active-leaf-change', (leaf) => {
-            if (this.activeEditor && leaf !== this.activeEditor.leaf) {
-                this.debouncedRefocus();
-            }
-        }));
     }
 
     async onClose() {
@@ -245,58 +229,32 @@ export class EnhancedContinuousView extends ItemView {
         contentDiv.empty();
         const editorContainer = contentDiv.createDiv('inline-editor-container');
 
-        let parentSplit: WorkspaceSplit;
-        if (this.leaf.parent instanceof WorkspaceTabs) {
-            parentSplit = this.leaf.parent.parent;
-        } else {
-            parentSplit = this.leaf.parent;
-        }
-
-        const leaf = this.app.workspace.createLeafInParent(parentSplit, -1);
+        const leaf = this.app.workspace.createLeafInParent(this.leaf.parent, -1);
         leaf.setPinned(true);
 
         await leaf.openFile(file);
 
-        const leafParent = (leaf.view.containerEl.parentElement as HTMLElement);
-        if (leafParent) {
-            leafParent.style.display = 'none';
-        }
-
-        const viewState = leaf.getViewState();
-        if (!viewState.state) viewState.state = {};
-        viewState.state.mode = 'source';
-        await leaf.setViewState(viewState);
-
         const markdownView = leaf.view as MarkdownView;
         if (markdownView && markdownView.editor) {
-            const editorEl = (markdownView.containerEl as any).querySelector('.view-content');
-            if (editorEl) {
-                const originalParent = editorEl.parentElement;
-                editorContainer.appendChild(editorEl);
+            editorContainer.appendChild(leaf.view.containerEl);
 
-                const cleanupFunctions: (() => void)[] = [];
-
-                const focusinHandler = () => {
-                    this.app.workspace.setActiveLeaf(leaf, { focus: true });
-                };
-                editorContainer.addEventListener("focusin", focusinHandler);
-                cleanupFunctions.push(() => editorContainer.removeEventListener("focusin", focusinHandler));
-
-
-                this.activeEditor = {
-                    file: file,
-                    container: container,
-                    leaf: leaf,
-                    originalParent: originalParent,
-                    markdownView: markdownView,
-                    cleanupFunctions: cleanupFunctions
-                };
-
+            const cleanupFunctions: (() => void)[] = [];
+            const focusinHandler = () => {
                 this.app.workspace.setActiveLeaf(leaf, { focus: true });
-                this.setupClickOutsideHandler(container);
-            } else {
-                leaf.detach();
-            }
+            };
+            editorContainer.addEventListener("focusin", focusinHandler);
+            cleanupFunctions.push(() => editorContainer.removeEventListener("focusin", focusinHandler));
+
+            this.activeEditor = {
+                file: file,
+                container: container,
+                leaf: leaf,
+                markdownView: markdownView,
+                cleanupFunctions: cleanupFunctions
+            };
+
+            this.app.workspace.setActiveLeaf(leaf, { focus: true });
+            this.setupClickOutsideHandler(container);
         } else {
             leaf.detach();
         }
@@ -305,8 +263,9 @@ export class EnhancedContinuousView extends ItemView {
     async cleanupActiveEditor() {
         if (!this.activeEditor) return;
 
-        const { file, container, leaf, originalParent, markdownView, cleanupFunctions } = this.activeEditor;
+        const { file, container, leaf, markdownView, cleanupFunctions } = this.activeEditor;
 
+        // First, perform cleanup that doesn't involve the DOM
         cleanupFunctions.forEach(fn => fn());
 
         if (markdownView && markdownView.editor) {
@@ -314,18 +273,14 @@ export class EnhancedContinuousView extends ItemView {
             await new Promise(resolve => setTimeout(resolve, 100));
         }
 
-        if (originalParent) {
-            const editorEl = container.querySelector('.view-content');
-            if (editorEl) {
-                originalParent.appendChild(editorEl);
-            }
-        }
-
+        // Crucially, detach the leaf BEFORE clearing the parent DOM element.
+        // This lets Obsidian handle the leaf's removal properly.
         if (leaf) {
             leaf.setPinned(false);
             leaf.detach();
         }
 
+        // Now that the leaf is gone, we can safely re-render our view
         const contentDiv = container.querySelector('.file-content') as HTMLElement;
         if (contentDiv) {
             contentDiv.empty();
@@ -445,17 +400,11 @@ export class EnhancedContinuousView extends ItemView {
         if(this.contentContainer) this.contentContainer.empty();
     }
 
-    private debounce(func: Function, wait: number, immediate = false) {
-        let timeout: NodeJS.Timeout | null;
+    private debounce(func: Function, wait: number) {
+        let timeout: NodeJS.Timeout;
         return (...args: any[]) => {
-            const later = () => {
-                timeout = null;
-                if (!immediate) func.apply(this, args);
-            };
-            const callNow = immediate && !timeout;
-            clearTimeout(timeout as NodeJS.Timeout);
-            timeout = setTimeout(later, wait);
-            if (callNow) func.apply(this, args);
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func.apply(this, args), wait);
         };
     }
 
