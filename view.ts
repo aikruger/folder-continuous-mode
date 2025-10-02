@@ -266,10 +266,12 @@ export class EnhancedContinuousView extends ItemView {
             if (preserveFocusElement && (preserveFocusElement as HTMLElement).isConnected) {
                 (preserveFocusElement as HTMLElement).focus();
 
-                const activeLeaf = this.app.workspace.activeLeaf;
-                if (preserveCursorPosition && activeLeaf && activeLeaf.view instanceof MarkdownView && activeLeaf.view.editor) {
+                if (preserveCursorPosition) {
                     setTimeout(() => {
-                        activeLeaf.view.editor.setCursor(preserveCursorPosition);
+                        const activeLeaf = this.app.workspace.activeLeaf;
+                        if (activeLeaf?.view instanceof MarkdownView && activeLeaf.view.editor) {
+                            activeLeaf.view.editor.setCursor(preserveCursorPosition);
+                        }
                     }, 10);
                 }
             }
