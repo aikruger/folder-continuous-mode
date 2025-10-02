@@ -6,13 +6,15 @@ export interface EnhancedContinuousModeSettings {
     maxFileCount: number;
     loadUnloadCount: number;
     scrollThreshold: number;
+    preserveEditorFocus: boolean;
 }
 
 export const DEFAULT_SETTINGS: EnhancedContinuousModeSettings = {
     initialFileCount: 5,
     maxFileCount: 7,
     loadUnloadCount: 2,
-    scrollThreshold: 0.1
+    scrollThreshold: 0.1,
+    preserveEditorFocus: true
 };
 
 export class EnhancedContinuousModeSettingTab extends PluginSettingTab {
@@ -69,7 +71,17 @@ export class EnhancedContinuousModeSettingTab extends PluginSettingTab {
                 .setValue(this.plugin.settings.scrollThreshold.toString())
                 .onChange(async (value) => {
                     this.plugin.settings.scrollThreshold = Number(value);
-await this.plugin.saveSettings();
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName('Preserve Editor Focus')
+            .setDesc('Keep focus in active editors when clicking on continuous view content. When enabled, clicking on content will show a tooltip instead of opening the file if you are actively editing elsewhere.')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.preserveEditorFocus)
+                .onChange(async (value) => {
+                    this.plugin.settings.preserveEditorFocus = value;
+                    await this.plugin.saveSettings();
                 }));
     }
 }
