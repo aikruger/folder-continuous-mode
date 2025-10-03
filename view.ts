@@ -20,6 +20,13 @@ export class EnhancedContinuousView extends ItemView {
     private activeFileObserver: IntersectionObserver;
     private lastHighlighted: HTMLElement | null = null;
 
+    // Properties for focus management
+    private focusLockActive: boolean = false;
+    private currentEditingElement: HTMLTextAreaElement | null = null;
+    private originalSetActiveLeaf: ((leaf: WorkspaceLeaf, params?: { focus?: boolean; }) => void) |
+                                  ((leaf: WorkspaceLeaf, pushHistory: boolean, focus: boolean) => void) | null = null;
+
+
     constructor(leaf: WorkspaceLeaf, plugin: EnhancedContinuousModePlugin) {
         super(leaf);
         this.plugin = plugin;
@@ -208,6 +215,18 @@ export class EnhancedContinuousView extends ItemView {
         } else if (this.plugin.settings.clickBehavior === 'preserve-focus') {
             contentEl.addEventListener('click', (event) => {
                 this.handleContentClick(file, fileContainer, event);
+            });
+        } else if (this.plugin.settings.clickBehavior === 'in-place-edit') {
+            contentEl.addEventListener('dblclick', async (event) => {
+                if ((event.target as HTMLElement).closest('a, button, input, textarea, [contenteditable]')) {
+                    return;
+                }
+                // Prevent selecting text on double-click
+                if (window.getSelection()) {
+                    window.getSelection()?.removeAllRanges();
+                }
+                const content = await this.app.vault.cachedRead(file);
+                this.enterEditMode(contentEl, file, content);
             });
         }
 
@@ -411,5 +430,213 @@ export class EnhancedContinuousView extends ItemView {
             console.error("Error exporting to single file:", error);
             new Notice('Failed to export file.');
         }
+    }
+
+    // In-place editing methods
+    private enterEditMode(container: HTMLElement, file: TFile, content: string) {
+        if (this.focusLockActive) return;
+
+        this.containerEl.addClass('editing-active');
+
+        const editorContainer = createDiv('inline-editor-container');
+        const textarea = createEl('textarea', { cls: 'inline-editor-textarea' });
+        textarea.value = content;
+
+        const saveAndExit = async () => {
+            const newContent = textarea.value;
+            await this.app.vault.modify(file, newContent);
+            this.exitEditMode(container, file, newContent);
+        };
+
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                this.exitEditMode(container, file, content); // Exit without saving on Escape
+            } else if (e.key === 's' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                e.stopPropagation();
+                saveAndExit();
+                new Notice(`${file.basename} saved!`);
+            }
+        };
+        textarea.addEventListener('keydown', handleKeyDown);
+
+        editorContainer.appendChild(textarea);
+        container.empty();
+        container.appendChild(editorContainer);
+
+        // Create more aggressive overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'focus-lock-overlay';
+        overlay.style.zIndex = '999999'; // Higher z-index
+        document.body.appendChild(overlay);
+
+        const redirectToTextarea = (event: MouseEvent) => {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            textarea.focus();
+            if (textarea.value.length > 0) {
+                const cursorPos = Math.min(textarea.selectionStart, textarea.value.length);
+                textarea.setSelectionRange(cursorPos, cursorPos);
+            }
+        };
+
+        overlay.addEventListener('mousedown', redirectToTextarea, true);
+        overlay.addEventListener('click', redirectToTextarea, true);
+        overlay.addEventListener('mouseup', redirectToTextarea, true);
+
+        // Implement all focus strategies
+        this.implementFocusLock(textarea, container);
+        this.setupEventBlocking(textarea, container);
+        this.overrideObsidianFocus(textarea);
+
+        // Store cleanup functions
+        (textarea as any)._overlay = overlay;
+
+        const keydownCleanup = () => textarea.removeEventListener('keydown', handleKeyDown);
+        const overlayCleanup = () => {
+            overlay.removeEventListener('mousedown', redirectToTextarea, true);
+            overlay.removeEventListener('click', redirectToTextarea, true);
+            overlay.removeEventListener('mouseup', redirectToTextarea, true);
+        };
+
+        const existingEventCleanup = (textarea as any)._eventCleanup || (() => {});
+        (textarea as any)._eventCleanup = () => {
+            existingEventCleanup();
+            keydownCleanup();
+            overlayCleanup();
+        };
+    }
+
+    private exitEditMode(container: HTMLElement, file: TFile, newContent: string) {
+        if (!this.focusLockActive) return;
+
+        if (this.currentEditingElement && (this.currentEditingElement as any)._focusCleanup) {
+            (this.currentEditingElement as any)._focusCleanup();
+        }
+        if (this.currentEditingElement && (this.currentEditingElement as any)._eventCleanup) {
+            (this.currentEditingElement as any)._eventCleanup();
+        }
+        if (this.currentEditingElement && (this.currentEditingElement as any)._overlay) {
+            (this.currentEditingElement as any)._overlay.remove();
+        }
+
+        if (this.originalSetActiveLeaf) {
+            this.app.workspace.setActiveLeaf = this.originalSetActiveLeaf as any;
+            this.originalSetActiveLeaf = null;
+        }
+
+        this.focusLockActive = false;
+        this.currentEditingElement = null;
+
+        this.renderFileContent(file, container);
+        this.containerEl.removeClass('editing-active');
+    }
+
+    implementFocusLock(textarea: HTMLTextAreaElement, container: HTMLElement) {
+        this.focusLockActive = true;
+        this.currentEditingElement = textarea;
+
+        const focusWithSelection = () => {
+            if (!this.focusLockActive) return;
+            const selection = { start: textarea.selectionStart, end: textarea.selectionEnd };
+            textarea.focus();
+            setTimeout(() => {
+                if (textarea === document.activeElement) {
+                    textarea.setSelectionRange(selection.start, selection.end);
+                }
+            }, 0);
+        };
+
+        focusWithSelection();
+
+        const focusInterval = setInterval(() => {
+            if (!this.focusLockActive) {
+                clearInterval(focusInterval);
+                return;
+            }
+            if (document.activeElement !== textarea) {
+                focusWithSelection();
+            }
+        }, 50);
+
+        const preventAllMouseEvents = (event: MouseEvent) => {
+            if (!this.focusLockActive) return;
+            if (event.target !== textarea && !textarea.contains(event.target as Node)) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                focusWithSelection();
+            }
+        };
+
+        document.addEventListener('mousedown', preventAllMouseEvents, true);
+        document.addEventListener('mouseup', preventAllMouseEvents, true);
+        document.addEventListener('click', preventAllMouseEvents, true);
+
+        (textarea as any)._focusCleanup = () => {
+            clearInterval(focusInterval);
+            document.removeEventListener('mousedown', preventAllMouseEvents, true);
+            document.removeEventListener('mouseup', preventAllMouseEvents, true);
+            document.removeEventListener('click', preventAllMouseEvents, true);
+            this.focusLockActive = false;
+            this.currentEditingElement = null;
+        };
+
+        this.emergencyFocusRecovery(textarea);
+    }
+
+    setupEventBlocking(textarea: HTMLTextAreaElement, container: HTMLElement) {
+        const blockAllFocusEvents = (event: Event) => {
+            if (!this.focusLockActive) return;
+            if (event.target === textarea || textarea.contains(event.target as Node)) {
+                return;
+            }
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            setTimeout(() => textarea.focus(), 0);
+        };
+
+        const criticalEvents = [
+            'mousedown', 'mouseup', 'click', 'dblclick',
+            'focus', 'blur', 'focusin', 'focusout',
+            'keydown', 'keyup', 'keypress'
+        ];
+
+        criticalEvents.forEach(eventType => {
+            document.addEventListener(eventType, blockAllFocusEvents, { capture: true });
+        });
+
+        const existingEventCleanup = (textarea as any)._eventCleanup || (() => {});
+        (textarea as any)._eventCleanup = () => {
+            existingEventCleanup();
+            criticalEvents.forEach(eventType => {
+                document.removeEventListener(eventType, blockAllFocusEvents, { capture: true });
+            });
+        };
+    }
+
+    overrideObsidianFocus(textarea: HTMLTextAreaElement) {
+        this.originalSetActiveLeaf = this.app.workspace.setActiveLeaf;
+
+        this.app.workspace.setActiveLeaf = (leaf: WorkspaceLeaf, ...args: any[]) => {
+            console.log("Enhanced Continuous Mode: Blocked setActiveLeaf to maintain focus.");
+            textarea.focus();
+        };
+    }
+
+    emergencyFocusRecovery(textarea: HTMLTextAreaElement) {
+        if (!this.focusLockActive || !textarea) return;
+
+        const recovery = () => {
+            if (!this.focusLockActive) return;
+            if (document.activeElement !== textarea) {
+                console.log('Emergency focus recovery triggered');
+                textarea.focus();
+                requestAnimationFrame(recovery);
+            }
+        };
+
+        requestAnimationFrame(recovery);
     }
 }

@@ -8,7 +8,7 @@ export interface EnhancedContinuousModeSettings {
     scrollThreshold: number;
     preserveEditorFocus: boolean;
     showFilePreviewTooltips: boolean;
-    clickBehavior: 'preserve-focus' | 'normal' | 'disabled';
+    clickBehavior: 'preserve-focus' | 'normal' | 'disabled' | 'in-place-edit';
 }
 
 export const DEFAULT_SETTINGS: EnhancedContinuousModeSettings = {
@@ -18,7 +18,7 @@ export const DEFAULT_SETTINGS: EnhancedContinuousModeSettings = {
     scrollThreshold: 0.1,
     preserveEditorFocus: true,
     showFilePreviewTooltips: true,
-    clickBehavior: 'preserve-focus'
+    clickBehavior: 'in-place-edit'
 };
 
 export class EnhancedContinuousModeSettingTab extends PluginSettingTab {
@@ -94,7 +94,8 @@ export class EnhancedContinuousModeSettingTab extends PluginSettingTab {
             .setName('Click Behavior')
             .setDesc('How clicks on file content should behave.')
             .addDropdown(dropdown => dropdown
-                .addOption('preserve-focus', 'Preserve focus (recommended)')
+                .addOption('in-place-edit', 'In-place editing (double-click)')
+                .addOption('preserve-focus', 'Preserve focus (click)')
                 .addOption('normal', 'Normal file opening')
                 .addOption('disabled', 'Disable content clicks')
                 .setValue(this.plugin.settings.clickBehavior)

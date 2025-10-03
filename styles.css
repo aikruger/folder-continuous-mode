@@ -112,3 +112,34 @@
     box-shadow: var(--shadow-s);
     pointer-events: none;
 }
+
+/* Maximum focus protection */
+.enhanced-continuous-container.editing-active * {
+    pointer-events: none !important;
+}
+
+.enhanced-continuous-container.editing-active .inline-editor-container,
+.enhanced-continuous-container.editing-active .inline-editor-container * {
+    pointer-events: auto !important;
+}
+
+.inline-editor-textarea {
+    /* Ensure maximum z-index and interaction priority */
+    z-index: 999999 !important;
+    position: relative !important;
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    -moz-user-select: text !important;
+}
+
+.focus-lock-overlay {
+    /* More aggressive overlay */
+    z-index: 999998 !important;
+    background: rgba(0, 0, 0, 0.001) !important;
+    cursor: text !important;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+}
