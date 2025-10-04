@@ -108,17 +108,13 @@
     opacity: 1;
 }
 
-/* Debug sentinels */
 .scroll-sentinel {
-    background: rgba(255, 0, 0, 0.1) !important; /* Temporary for debugging */
-    border: 1px dashed red !important;
-    min-height: 20px !important;
-}
-
-.scroll-sentinel::before {
-    content: attr(class);
-    font-size: 10px;
-    color: red;
+    position: relative;
+    height: 1px;
+    margin: 0;
+    padding: 0;
+    pointer-events: none;
+    background: transparent;
 }
 
 .file-header {
