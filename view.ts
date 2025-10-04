@@ -510,14 +510,37 @@ export class EnhancedContinuousView extends ItemView {
         const fileContainer = createDiv('file-container');
         fileContainer.dataset.fileName = file.path;
 
-        const headerEl = fileContainer.createDiv('file-header').createEl('h2', {
+        const headerEl = fileContainer.createDiv('file-header');
+        const headerContent = headerEl.createDiv('file-header-content');
+
+        const titleEl = headerContent.createEl('h2', {
             text: file.basename,
             cls: 'file-title'
         });
-        headerEl.style.cursor = 'pointer';
-        headerEl.addEventListener('click', () =>
+
+        // Make header draggable for linking
+        titleEl.draggable = true;
+        titleEl.style.cursor = 'grab';
+
+        titleEl.addEventListener('dragstart', (evt: DragEvent) => {
+            if (!evt.dataTransfer) return;
+            const link = this.app.fileManager.generateMarkdownLink(file, this.currentFolder?.path || '');
+            evt.dataTransfer.setData('text/plain', link);
+            evt.dataTransfer.effectAllowed = 'copy';
+        });
+
+        titleEl.addEventListener('click', () =>
             this.app.workspace.getLeaf('tab').openFile(file)
         );
+
+        const excludeButton = headerContent.createEl('button', {
+            text: 'X',
+            cls: 'exclude-file-button'
+        });
+        excludeButton.addEventListener('click', (evt) => {
+            evt.stopPropagation();
+            this.excludeFile(file);
+        });
 
         const contentEl = fileContainer.createDiv('file-content');
         contentEl.addEventListener('dblclick', (event) => {
@@ -531,6 +554,19 @@ export class EnhancedContinuousView extends ItemView {
         // DON'T observe here - will be done after DOM insertion
         console.debug(`Created element for file: ${file.path}`);
         return fileContainer;
+    }
+
+    private excludeFile(fileToExclude: TFile) {
+        // Remove from the main list of all files
+        this.allFiles = this.allFiles.filter(f => f.path !== fileToExclude.path);
+
+        // Remove from the currently loaded/rendered files
+        this.loadedFiles = this.loadedFiles.filter(f => f.path !== fileToExclude.path);
+
+        // Remove the file's element from the DOM
+        this.removeFileFromDOM(fileToExclude.path);
+
+        new Notice(`"${fileToExclude.basename}" excluded from view.`);
     }
 
     async switchToEditorView(file: TFile, fileContainer: Element) {
@@ -1348,6 +1384,10 @@ export class EnhancedContinuousView extends ItemView {
         if (this.getDisplayText() !== newDisplayText) (this.leaf as any).rebuildView();
     }
 
+    /**
+     * Combines all files in the current view into a single markdown file.
+     * This function is triggered by a view action.
+     */
     private async exportToSingleFile() {
         if (!this.currentFolder || this.allFiles.length === 0) {
             new Notice('No folder or files to export.');
