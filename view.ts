@@ -35,6 +35,7 @@ export class EnhancedContinuousView extends ItemView {
     private contentContainer: HTMLElement;
     private activeFileObserver: IntersectionObserver;
     private lastHighlighted: HTMLElement | null = null;
+    private dropZone: HTMLElement;
 
     private activeEditor: ActiveEditor | null = null;
     private clickOutsideHandler: ((event: MouseEvent | KeyboardEvent) => void) | null = null;
@@ -1150,6 +1151,22 @@ export class EnhancedContinuousView extends ItemView {
     }
 
     private createScrollElements(container: HTMLElement) {
+        // Create drop zone at the top
+        this.dropZone = container.createDiv({
+            cls: 'file-drop-zone',
+            text: 'Drop files here to add to continuous view'
+        });
+        this.dropZone.style.cssText = `
+            border: 2px dashed var(--background-modifier-border);
+            padding: 20px;
+            text-align: center;
+            color: var(--text-muted);
+            margin-bottom: 10px;
+            border-radius: 4px;
+            transition: all 0.2s ease-in-out;
+            display: none;
+        `;
+
         // Create indicators (initially hidden)
         this.topIndicator = container.createDiv({
             cls: "scroll-indicator top-indicator",
@@ -1178,6 +1195,9 @@ export class EnhancedContinuousView extends ItemView {
             text: "⇊",
             attr: { style: "display: none;" }
         });
+
+        // Setup drop zone handlers
+        this.setupDropZone();
         
         // FIXED: Force re-initialization of observers
         setTimeout(() => {
@@ -1382,6 +1402,83 @@ export class EnhancedContinuousView extends ItemView {
     private updateDisplayText() {
         const newDisplayText = this.currentFolder ? `Continuous: ${this.currentFolder.name}` : 'Enhanced Continuous View';
         if (this.getDisplayText() !== newDisplayText) (this.leaf as any).rebuildView();
+    }
+
+    setupDropZone() {
+        // Show drop zone on drag over
+        this.registerDomEvent(document, 'dragover', (e: DragEvent) => {
+            if (this.isDraggedFileCompatible(e)) {
+                e.preventDefault();
+                this.dropZone.style.display = 'block';
+                this.dropZone.style.borderColor = 'var(--interactive-accent)';
+                this.dropZone.style.backgroundColor = 'var(--background-secondary)';
+            }
+        });
+
+        this.registerDomEvent(document, 'dragleave', (e: DragEvent) => {
+            if (!this.containerEl.contains(e.relatedTarget as Node)) {
+                this.dropZone.style.display = 'none';
+            }
+        });
+
+        this.registerDomEvent(document, 'drop', (e: DragEvent) => {
+            this.dropZone.style.display = 'none';
+            if (this.isDraggedFileCompatible(e)) {
+                e.preventDefault();
+                this.handleFileDrop(e);
+            }
+        });
+    }
+
+    isDraggedFileCompatible(e: DragEvent): boolean {
+        if (!e.dataTransfer) {
+            return false;
+        }
+        // Check if dragged data contains file references
+        const types = e.dataTransfer.types;
+        return types.includes('Files') || types.includes('application/x-obsidian-file');
+    }
+
+    async handleFileDrop(e: DragEvent) {
+        if (!e.dataTransfer) {
+            return;
+        }
+        try {
+            const files = Array.from(e.dataTransfer.files);
+            const obsidianFiles: TFile[] = [];
+
+            for (const file of files) {
+                if (file.name.endsWith('.md')) {
+                    // Find corresponding TFile in vault
+                    const tfile = this.app.vault.getMarkdownFiles()
+                        .find(f => f.name === file.name);
+
+                    if (tfile && !this.allFiles.some(f => f.path === tfile.path)) {
+                        obsidianFiles.push(tfile);
+                    }
+                }
+            }
+
+            if (obsidianFiles.length > 0) {
+                // Add to allFiles array
+                this.allFiles.push(...obsidianFiles);
+
+                // Add to current view if we have space
+                const hasSpace = this.loadedFiles.length < this.plugin.settings.maxFileCount;
+                if (hasSpace) {
+                    await this.appendFilesToDOM(obsidianFiles);
+                    this.loadedFiles.push(...obsidianFiles);
+                    this.updateScrollElements();
+                }
+
+                new Notice(`Added ${obsidianFiles.length} file(s) to continuous view`);
+            } else {
+                new Notice('No valid markdown files found or files already in view');
+            }
+        } catch (error) {
+            console.error('Error handling file drop:', error);
+            new Notice('Error adding files to continuous view');
+        }
     }
 
     /**
