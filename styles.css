@@ -146,3 +146,7 @@
 .enhanced-continuous-container {
     isolation: isolate;
 }
+
+.is-active-in-continuous-view {
+    background-color: var(--interactive-accent-hover);
+}

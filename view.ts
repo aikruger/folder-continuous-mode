@@ -118,6 +118,18 @@ export class EnhancedContinuousView extends ItemView {
         }
     }
 
+    private debounce(func: Function, wait: number) {
+        // Debounce function to limit the rate of function execution
+        let timeout: NodeJS.Timeout;
+        return (...args: any[]) => {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func.apply(this, args), wait);
+        };
+    }
+
+    private loadNextFilesDebounced = this.debounce(this.loadNextFiles.bind(this), 200);
+    private loadPreviousFilesDebounced = this.debounce(this.loadPreviousFiles.bind(this), 200);
+
     private setupIntersectionObserver() {
         const options = {
             root: this.containerEl.children[1],
@@ -136,10 +148,10 @@ export class EnhancedContinuousView extends ItemView {
                     
                     if (entry.target === this.topSentinel && this.currentIndex > 0) {
                         console.debug('Loading previous files...');
-                        this.loadPreviousFiles();
+                        this.loadPreviousFilesDebounced();
                     } else if (entry.target === this.bottomSentinel) {
                         console.debug('Loading next files...');
-                        this.loadNextFiles();
+                        this.loadNextFilesDebounced();
                     }
                 }
             });
@@ -1194,17 +1206,6 @@ export class EnhancedContinuousView extends ItemView {
             }
         }
     }
-
-    private debounce(func: Function, wait: number) {
-        let timeout: NodeJS.Timeout;
-        return (...args: any[]) => {
-            clearTimeout(timeout);
-            timeout = setTimeout(() => func.apply(this, args), wait);
-        };
-    }
-
-    private loadNextFilesDebounced = this.debounce(this.loadNextFiles.bind(this), 200);
-    private loadPreviousFilesDebounced = this.debounce(this.loadPreviousFiles.bind(this), 200);
 
     private updateDisplayText() {
         const newDisplayText = this.currentFolder ? `Continuous: ${this.currentFolder.name}` : 'Enhanced Continuous View';
