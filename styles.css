@@ -89,6 +89,7 @@
     font-family: var(--font-monospace);
 }
 
+/* Cleaner scroll indicators */
 .scroll-indicator {
     position: sticky;
     top: 0;
@@ -96,25 +97,35 @@
     right: 0;
     z-index: 1000001;
     text-align: center;
-    padding: 4px;
-    background: var(--background-secondary);
-    border-radius: 4px;
-    margin: 4px 0;
-    opacity: 0.8;
+    padding: 2px 8px;
+    background: var(--background-modifier-border);
+    color: var(--text-muted);
+    font-size: 11px;
+    opacity: 0.7;
     transition: opacity 0.2s ease-in-out;
+    border-radius: 0 0 4px 4px;
 }
 
 .scroll-indicator:hover {
-    opacity: 1;
+    opacity: 0.9;
 }
 
+/* Make scroll sentinels truly invisible */
 .scroll-sentinel {
     position: relative;
-    height: 1px;
+    height: 1px !important;
+    width: 100%;
     margin: 0;
     padding: 0;
     pointer-events: none;
-    background: transparent;
+    background: transparent !important;
+    opacity: 0 !important;
+    overflow: hidden;
+}
+
+/* Remove any ::before content that shows text */
+.scroll-sentinel::before {
+    display: none !important;
 }
 
 .file-header {
