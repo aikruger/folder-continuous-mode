@@ -43,7 +43,6 @@ export class EnhancedContinuousView extends ItemView {
         super(leaf);
         this.plugin = plugin;
         this.setupIntersectionObserver();
-        this.setupActiveFileObserver();
     }
 
     getViewType(): string {
@@ -61,6 +60,7 @@ export class EnhancedContinuousView extends ItemView {
 
         this.addAction('document', 'Export as single document', () => this.exportToSingleFile());
         this.createScrollElements(container);
+        this.setupActiveFileObserver();
 
         if (!this.currentFolder) {
             this.showFolderSelector(container);
@@ -133,11 +133,11 @@ export class EnhancedContinuousView extends ItemView {
     private setupIntersectionObserver() {
         const options = {
             root: this.containerEl.children[1],
-            rootMargin: '300px 0px', // Increased margin for earlier trigger
-            threshold: 0            // Changed to 0 for immediate trigger
+            rootMargin: "100px 0px", // Reduced for better performance
+            threshold: 0.1
         };
         
-        this.intersectionObserver = new IntersectionObserver((entries) => {
+        this.intersectionObserver = new IntersectionObserver(entries => {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
                     console.debug(`Intersection detected for ${entry.target.className}`, {
@@ -146,11 +146,14 @@ export class EnhancedContinuousView extends ItemView {
                         isBottom: entry.target === this.bottomSentinel
                     });
                     
+                    // FIXED: Separate IF statements instead of ternary
                     if (entry.target === this.topSentinel && this.currentIndex > 0) {
-                        console.debug('Loading previous files...');
+                        console.debug("Loading previous files...");
                         this.loadPreviousFilesDebounced();
-                    } else if (entry.target === this.bottomSentinel) {
-                        console.debug('Loading next files...');
+                    }
+
+                    if (entry.target === this.bottomSentinel) {
+                        console.debug("Loading next files...");
                         this.loadNextFilesDebounced();
                     }
                 }
@@ -160,22 +163,23 @@ export class EnhancedContinuousView extends ItemView {
 
     private setupActiveFileObserver() {
         const options = {
-            root: this.containerEl.querySelector('.enhanced-continuous-container'),
-            rootMargin: '-20% 0px -60% 0px',  // Adjusted to highlight more accurately
-            threshold: [0, 0.1]                // Simplified thresholds for more reliable triggering
+            root: null, // Use viewport instead of non-existent container
+            rootMargin: "0px 0px -50% 0px", // Top 50% of viewport triggers highlight
+            threshold: [0.1, 0.3, 0.5]
         };
 
-        this.activeFileObserver = new IntersectionObserver((entries) => {
-            entries.forEach((entry) => {
+        this.activeFileObserver = new IntersectionObserver(entries => {
+            entries.forEach(entry => {
                 if (entry.isIntersecting) {
                     const target = entry.target as HTMLElement;
+                    console.debug(`File intersection detected: ${target.dataset.fileName}`, {
+                        ratio: entry.intersectionRatio,
+                        boundingRect: entry.boundingClientRect
+                    });
                     
-                    // Use a small delay to ensure stable highlighting
+                    // Delay to ensure stable intersection
                     setTimeout(() => {
-                        if (entry.isIntersecting) {  // Double-check it's still intersecting
-                            console.debug(`File intersection detected: ${target.dataset.fileName}`, {
-                                ratio: entry.intersectionRatio
-                            });
+                        if (entry.isIntersecting) {
                             this.highlightFileInExplorer(target);
                         }
                     }, 100);
@@ -184,45 +188,76 @@ export class EnhancedContinuousView extends ItemView {
         }, options);
     }
 
-    private highlightFileInExplorer(fileContainer: HTMLElement) {
-        const filePath = fileContainer.dataset.fileName;
-        if (!filePath) {
+    private highlightFileInExplorer(element: HTMLElement) {
+        const fileName = element.dataset.fileName;
+        if (!fileName) {
             console.debug('No filename found for highlighting');
             return;
         }
         
-        // Remove previous highlight with safe check
+        console.debug(`Attempting to highlight file: ${fileName}`);
+
+        // Remove previous highlight
         if (this.lastHighlighted) {
             this.lastHighlighted.removeClass('is-active-in-continuous-view');
-            this.lastHighlighted = null;  // Clear reference after removing class
+            this.lastHighlighted = null;
         }
 
-        // Find and highlight new file
-        const fileExplorerLeaf = this.app.workspace.getLeavesOfType('file-explorer')?.[0];
-        if (fileExplorerLeaf) {
-            const explorerEl = fileExplorerLeaf.view.containerEl;
-            const newHighlightEl = explorerEl.querySelector(`.nav-file-title[data-path="${filePath}"]`) as HTMLElement;
-            
-            if (newHighlightEl) {
-                // Add highlight class
-                newHighlightEl.addClass('is-active-in-continuous-view');
-                this.lastHighlighted = newHighlightEl;
+        const explorerLeaf = this.app.workspace.getLeavesOfType('file-explorer')?.[0];
+        if (!explorerLeaf) {
+            console.debug('File explorer not found');
+            return;
+        }
 
-                // Ensure the highlighted file is visible
-                try {
-                    newHighlightEl.scrollIntoView({
-                        block: 'nearest',
-                        behavior: 'smooth',
-                    });
-                    console.debug(`Successfully highlighted and scrolled to: ${filePath}`);
-                } catch (e) {
-                    console.debug(`Error scrolling to file: ${filePath}`, e);
+        // Try multiple selector patterns
+        const selectors = [
+            `.nav-file-title[data-path="${fileName}"]`,
+            `[data-path="${fileName}"]`,
+            `.nav-file-title-content:has(.nav-file-title[data-path="${fileName}"])`
+        ];
+
+        let navElement: HTMLElement | null = null;
+        for (const selector of selectors) {
+            try {
+                navElement = explorerLeaf.view.containerEl.querySelector(selector);
+                if (navElement) {
+                    console.debug(`Found with selector: ${selector}`);
+                    break;
                 }
-            } else {
-                console.debug(`Nav element not found for: ${filePath}`);
+            } catch (e) {
+                console.debug(`Selector failed: ${selector}`, e);
+            }
+        }
+
+        // Fallback: search by text content
+        if (!navElement) {
+            const baseName = fileName.split('/').pop()?.replace('.md', '');
+            const allNavTitles = explorerLeaf.view.containerEl.querySelectorAll('.nav-file-title');
+
+            for (const navTitle of Array.from(allNavTitles)) {
+                if (navTitle.textContent?.trim() === baseName) {
+                    navElement = navTitle as HTMLElement;
+                    console.debug(`Found by text content: ${baseName}`);
+                    break;
+                }
+            }
+        }
+
+        if (navElement) {
+            navElement.addClass('is-active-in-continuous-view');
+            this.lastHighlighted = navElement;
+
+            try {
+                navElement.scrollIntoView({
+                    block: 'center',
+                    behavior: 'smooth'
+                });
+                console.debug(`Successfully highlighted: ${fileName}`);
+            } catch (error) {
+                console.debug(`Error scrolling: ${error}`);
             }
         } else {
-            console.debug('File explorer not found');
+            console.debug(`Nav element not found for: ${fileName}`);
         }
     }
 
@@ -323,14 +358,6 @@ export class EnhancedContinuousView extends ItemView {
         await this.appendFilesToDOM(filesToLoad);
         this.loadedFiles.push(...filesToLoad);
         
-        // Re-establish observers for new files
-        filesToLoad.forEach(file => {
-            const element = this.contentContainer.querySelector(`[data-file-name="${file.path}"]`);
-            if (element) {
-                this.activeFileObserver.observe(element);
-            }
-        });
-        
         // Update scroll elements
         this.updateScrollElements();
     }
@@ -385,7 +412,7 @@ export class EnhancedContinuousView extends ItemView {
 
     private async renderFiles() {
         this.contentContainer.empty();
-        for (const file of this.loadedFiles) await this.appendFileToDOM(file, this.contentContainer);
+        await this.appendFilesToDOM(this.loadedFiles);
     }
 
     private async renderFileContent(file: TFile, contentDiv: Element): Promise<void> {
@@ -424,8 +451,9 @@ export class EnhancedContinuousView extends ItemView {
         });
 
         await this.renderFileContent(file, contentEl);
-        this.activeFileObserver.observe(fileContainer);
 
+        // DON'T observe here - will be done after DOM insertion
+        console.debug(`Created element for file: ${file.path}`);
         return fileContainer;
     }
 
@@ -940,10 +968,6 @@ export class EnhancedContinuousView extends ItemView {
         this.activeEditor = null;
     }
 
-    private async appendFileToDOM(file: TFile, container: HTMLElement) {
-        container.appendChild(await this.createFileElement(file));
-    }
-
     private async appendFilesToDOM(files: TFile[]) {
         const fragment = document.createDocumentFragment();
         
@@ -1040,29 +1064,28 @@ export class EnhancedContinuousView extends ItemView {
             totalFiles: this.allFiles.length
         });
         
-        // Always disconnect first
         this.intersectionObserver.disconnect();
         
-        // Re-observe top sentinel if not at beginning
+        // Top sentinel logic
         if (this.currentIndex > 0) {
             this.intersectionObserver.observe(this.topSentinel);
-            this.topIndicator.style.display = 'block';
+            this.topIndicator.style.display = "block";
             console.debug('Top sentinel re-observed');
         } else {
-            this.topIndicator.style.display = 'none';
+            this.topIndicator.style.display = "none";
         }
         
-        // CRITICAL FIX: Always check if more files exist beyond currently loaded
-        const totalCurrentlyAccessible = this.currentIndex + this.loadedFiles.length;
-        const hasMoreFiles = totalCurrentlyAccessible < this.allFiles.length;
+        // Bottom sentinel logic - FIXED calculation
+        const totalAccessible = this.currentIndex + this.loadedFiles.length;
+        const hasMoreFiles = totalAccessible < this.allFiles.length;
         
         if (hasMoreFiles) {
             this.intersectionObserver.observe(this.bottomSentinel);
-            this.bottomIndicator.style.display = 'block';
-            console.debug(`Bottom sentinel re-observed. Current accessible: ${totalCurrentlyAccessible}, Total: ${this.allFiles.length}`);
+            this.bottomIndicator.style.display = "block";
+            console.debug(`Bottom sentinel observed. Accessible: ${totalAccessible}, Total: ${this.allFiles.length}`);
         } else {
-            this.bottomIndicator.style.display = 'none';
-            console.debug(`At end of all files. Accessible: ${totalCurrentlyAccessible}, Total: ${this.allFiles.length}`);
+            this.bottomIndicator.style.display = "none";
+            console.debug(`At end. Accessible: ${totalAccessible}, Total: ${this.allFiles.length}`);
         }
     }
 
