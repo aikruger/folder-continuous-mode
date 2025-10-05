@@ -44,6 +44,7 @@
 .file-container {
     position: relative;
     margin-bottom: 20px;
+    transition: all 0.2s ease-in-out;
 }
 
 .file-container.editing-active .file-content {
@@ -181,4 +182,80 @@
     background-color: var(--interactive-accent) !important;
     color: var(--text-on-accent) !important;
     font-weight: bold !important;
+}
+
+/* Individual between-file drop zones */
+.file-drop-zone-between {
+    height: 12px !important;
+    margin: 2px 0;
+    border: 2px dashed transparent;
+    border-radius: 4px;
+    opacity: 0;
+    transition: all 0.2s ease-in-out;
+    background: transparent;
+    display: none;
+    text-align: center;
+    font-size: 10px;
+    color: var(--text-muted);
+    line-height: 12px;
+    cursor: pointer;
+    position: relative;
+    z-index: 10;
+}
+
+.file-drop-zone-between:hover,
+.file-drop-zone-between.drag-active {
+    border-color: var(--interactive-accent);
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    opacity: 1 !important;
+    height: 16px !important;
+    line-height: 16px;
+}
+
+/* Enhance file container for drag targeting */
+.file-container {
+    position: relative;
+    margin-bottom: 20px;
+    transition: all 0.2s ease-in-out;
+}
+
+.file-container.drag-target {
+    background: var(--background-secondary);
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(var(--interactive-accent-rgb), 0.1);
+}
+
+/* Content area enhancements for drag interactions */
+.file-content {
+    position: relative;
+    /* Ensure content area is properly defined for drag events */
+    min-height: 100px;
+    padding: 10px;
+    cursor: text; /* Indicate this is an interactive content area */
+}
+
+.file-content:hover {
+    background-color: var(--background-secondary-alt);
+    transition: background-color 0.2s ease;
+}
+
+/* Make drop zones less intrusive over content */
+.file-drop-zone-between.content-drag {
+    opacity: 0.7 !important;
+    font-size: 9px;
+    height: 10px !important;
+    line-height: 10px;
+}
+
+/* Ensure file header is clearly separate from content */
+.file-header {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    background-color: var(--background-primary-alt);
+    cursor: pointer;
+}
+
+.file-header:hover {
+    background-color: var(--background-modifier-hover);
 }

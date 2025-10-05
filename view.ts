@@ -54,6 +54,10 @@ export class EnhancedContinuousView extends ItemView {
         return this.currentFolder ? `Continuous: ${this.currentFolder.name}` : 'Enhanced Continuous View';
     }
 
+    getIcon(): string {
+        return 'scroll'; // Use Obsidian's built-in scroll icon
+    }
+
     async onOpen() {
         const container = this.containerEl.children[1] as HTMLElement;
         container.empty();
@@ -173,7 +177,7 @@ export class EnhancedContinuousView extends ItemView {
             let mostVisible: Element | null = null;
             let maxRatio = 0;
             
-            entries.forEach(entry => {
+            entries.forEach((entry) => {
                 if (entry.isIntersecting && entry.intersectionRatio > maxRatio) {
                     maxRatio = entry.intersectionRatio;
                     mostVisible = entry.target;
@@ -227,7 +231,6 @@ export class EnhancedContinuousView extends ItemView {
             // Try multiple selector patterns
             const selectors = [
                 `.nav-file-title[data-path="${fileName}"]`,
-                `[data-path="${fileName}"]`,
                 `.nav-file-title-content[data-path="${fileName}"]`,
                 `.nav-file-title`
             ];
@@ -254,7 +257,7 @@ export class EnhancedContinuousView extends ItemView {
                 const allNavTitles = explorerLeaf.view.containerEl.querySelectorAll('.nav-file-title');
                 
                 for (const navTitle of Array.from(allNavTitles)) {
-                    if (navTitle.textContent?.trim() === baseName) {
+                    if ((navTitle as HTMLElement).textContent?.trim() === baseName) {
                         navElement = navTitle as HTMLElement;
                         console.debug(`Found by text content: ${baseName}`);
                         break;
@@ -507,1015 +510,692 @@ export class EnhancedContinuousView extends ItemView {
     }
 
     private async createFileElement(file: TFile): Promise<HTMLElement> {
-        const fileContainer = createDiv('file-container');
-        fileContainer.dataset.fileName = file.path;
-
-        const headerEl = fileContainer.createDiv('file-header');
-        const headerContent = headerEl.createDiv('file-header-content');
-
-        const titleEl = headerContent.createEl('h2', {
+        const container = createDiv('file-container');
+        container.dataset.fileName = file.path;
+        
+        // Create drop zone ABOVE this file
+        const dropZoneAbove = container.createDiv('file-drop-zone-between');
+        (dropZoneAbove as HTMLElement).dataset.dropPosition = 'above';
+        (dropZoneAbove as HTMLElement).dataset.targetFile = file.path;
+        (dropZoneAbove as HTMLElement).style.cssText = `
+            height: 8px;
+            margin: 4px 0;
+            border: 2px dashed transparent;
+            border-radius: 4px;
+            opacity: 0;
+            transition: all 0.2s ease-in-out;
+            background: transparent;
+            display: none;
+            text-align: center;
+            font-size: 10px;
+            color: var(--text-muted);
+            line-height: 8px;
+        `;
+        dropZoneAbove.textContent = '↓ Drop here ↓';
+        
+        // File header
+        const header = container.createDiv('file-header');
+        const titleElement = header.createEl('h2', {
             text: file.basename,
             cls: 'file-title'
         });
-
-        // Make header draggable for linking
-        titleEl.draggable = true;
-        titleEl.style.cursor = 'grab';
-
-        titleEl.addEventListener('dragstart', (evt: DragEvent) => {
-            if (!evt.dataTransfer) return;
-            const link = this.app.fileManager.generateMarkdownLink(file, this.currentFolder?.path || '');
-            evt.dataTransfer.setData('text/plain', link);
-            evt.dataTransfer.effectAllowed = 'copy';
-        });
-
-        titleEl.addEventListener('click', () =>
+        (titleElement as HTMLElement).style.cursor = 'pointer';
+        titleElement.addEventListener('click', () => 
             this.app.workspace.getLeaf('tab').openFile(file)
         );
 
-        const excludeButton = headerContent.createEl('button', {
-            text: 'X',
-            cls: 'exclude-file-button'
-        });
-        excludeButton.addEventListener('click', (evt) => {
-            evt.stopPropagation();
-            this.excludeFile(file);
-        });
-
-        const contentEl = fileContainer.createDiv('file-content');
-        contentEl.addEventListener('dblclick', (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            this.switchToEditorView(file, fileContainer);
+        // File content with double-click handler
+        const fileContent = container.createDiv('file-content');
+        fileContent.addEventListener('dblclick', (e: MouseEvent) => {
+            console.debug('Double-click detected on file content!', e);
+            e.preventDefault();
+            e.stopPropagation();
+            this.switchToEditorView(file, container);
         });
 
-        await this.renderFileContent(file, contentEl);
-
-        // DON'T observe here - will be done after DOM insertion
+        await this.renderFileContent(file, fileContent);
+        
+        // Setup drop zone for this file
+        this.setupIndividualDropZone(dropZoneAbove as HTMLElement, container as HTMLElement);
+        
         console.debug(`Created element for file: ${file.path}`);
-        return fileContainer;
+        return container;
     }
 
-    private excludeFile(fileToExclude: TFile) {
-        // Remove from the main list of all files
-        this.allFiles = this.allFiles.filter(f => f.path !== fileToExclude.path);
-
-        // Remove from the currently loaded/rendered files
-        this.loadedFiles = this.loadedFiles.filter(f => f.path !== fileToExclude.path);
-
-        // Remove the file's element from the DOM
-        this.removeFileFromDOM(fileToExclude.path);
-
-        new Notice(`"${fileToExclude.basename}" excluded from view.`);
-    }
-
-    async switchToEditorView(file: TFile, fileContainer: Element) {
-        if (this.activeEditor) {
-            await this.cleanupActiveEditor();
-        }
-
-        const fileContent = fileContainer.querySelector('.file-content');
-        if (!fileContent || !this.isHTMLElement(fileContent)) return;
-
-        try {
-            // Create a completely hidden leaf that won't show in UI
-            const hiddenLeaf = this.app.workspace.createLeafInParent(
-                this.app.workspace.rootSplit, 
-                -1
-            );
-
-            // Hide BEFORE opening file to prevent flash
-            const containerEl = (hiddenLeaf as any).containerEl;
-            if (this.isHTMLElement(containerEl)) {
-                containerEl.setAttribute('style', `
-                    position: absolute !important;
-                    left: -9999px !important;
-                    top: -9999px !important;
-                    width: 1px !important;
-                    height: 1px !important;
-                    opacity: 0 !important;
-                    visibility: hidden !important;
-                    pointer-events: none !important;
-                `);
-            }
-
-            await hiddenLeaf.openFile(file);
-
-            const view = hiddenLeaf.view;
-            if (!(view instanceof MarkdownView) || !view.editor) {
-                console.error('Failed to get MarkdownView or editor');
-                hiddenLeaf.detach();
-                return this.createFallbackEditor(file, fileContent, fileContainer);
-            }
-
-            // Extract editor elements silently
-            const contentEl = view.contentEl;
-            const editorElement = contentEl?.querySelector('.cm-editor, .markdown-source-view');
-
-            if (!editorElement || !this.isHTMLElement(editorElement)) {
-                console.error('Could not find valid editor element');
-                hiddenLeaf.detach();
-                return this.createFallbackEditor(file, fileContent, fileContainer);
-            }
-
-            // Create clean editor container first
-            fileContent.empty();
-            const editorWrapper = fileContent.createDiv('native-editor-wrapper');
-            
-            // Create editor header with exit button
-            const editorHeader = editorWrapper.createDiv('editor-header');
-            editorHeader.setAttribute('style', `
-                display: flex;
-                justify-content: flex-end;
-                padding: 4px;
-                border-bottom: 1px solid var(--background-modifier-border);
-                background-color: var(--background-secondary);
-            `);
-
-            const exitButton = editorHeader.createEl('button', {
-                cls: 'exit-editor-button',
-                attr: {
-                    'aria-label': 'Exit Editor',
-                    style: `
-                        display: flex;
-                        align-items: center;
-                        padding: 4px 8px;
-                        border-radius: 4px;
-                        color: var(--text-muted);
-                        background-color: var(--background-secondary);
-                        border: 1px solid var(--background-modifier-border);
-                        cursor: pointer;
-                        font-size: 12px;
-                    `
-                }
-            });
-            exitButton.innerHTML = `
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" 
-                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" 
-                    style="margin-right: 4px;">
-                    <path d="M18 6L6 18M6 6l12 12"/>
-                </svg>
-                Exit
-            `;
-            
-            exitButton.addEventListener('click', async () => {
-                const content = view.editor.getValue();
-                await this.app.vault.modify(file, content);
-                await this.cleanupActiveEditor();
-                await this.renderFileContent(file, fileContent);
-            });
-            
-            // Set up proper scrollable editor wrapper
-            editorWrapper.setAttribute('style', `
-                width: 100%;
-                max-height: 400px;
-                overflow: hidden !important;
-                border: 2px solid var(--interactive-accent);
-                border-radius: 4px;
-                position: relative;
-                z-index: 1000000;
-                background-color: var(--background-primary);
-            `);
-
-            const editorContainer = editorWrapper.createDiv('editor-container');
-            editorContainer.setAttribute('style', `
-                width: 100%;
-                max-height: 358px; /* 400px - header height */
-                overflow: auto !important;
-            `);
-
-            // Ensure editor element is properly sized
-            editorElement.setAttribute('style', `
-                width: 100%;
-                min-height: 200px;
-                max-height: none;
-                opacity: 0;
-                transition: opacity 0.2s ease-in-out;
-            `);
-
-            // Move editor element without affecting visibility
-            editorElement.detach();
-            editorContainer.appendChild(editorElement);
-
-            // Create focus trap overlay with pointer-events: none
-            const overlay = createDiv('focus-trap-overlay');
-            overlay.setAttribute('style', `
-                position: fixed !important;
-                top: 0 !important;
-                left: 0 !important;
-                right: 0 !important;
-                bottom: 0 !important;
-                z-index: 999998 !important;
-                background: transparent;
-                pointer-events: none;
-            `);
-            document.body.appendChild(overlay);
-
-            // Store references for cleanup
-            this.activeEditor = {
-                file: file,
-                container: fileContainer,
-                leaf: hiddenLeaf,
-                markdownView: view,
-                editorElement: editorElement,
-                originalParent: contentEl,
-                overlay: overlay
-            };
-
-            // Setup all exit handlers
-            this.setupEditorExitHandlers(view, fileContainer, file, overlay);
-
-            // Fade in smoothly
-            requestAnimationFrame(() => {
-                editorElement.style.transition = 'opacity 0.2s ease-in-out';
-                editorElement.style.opacity = '1';
-            });
-
-            // Focus the editor after transition
-            setTimeout(() => {
-                if (view.editor && view.editor.focus) {
-                    view.editor.focus();
-                }
-            }, 250);
-
-            // Add visual indication of edit mode
-            fileContainer.addClass('editing-active');
-
-            // Add hover effect for exit button
-            exitButton.addEventListener('mouseenter', () => {
-                exitButton.style.backgroundColor = 'var(--interactive-hover)';
-            });
-            exitButton.addEventListener('mouseleave', () => {
-                exitButton.style.backgroundColor = 'var(--background-secondary)';
-            });
-
-        } catch (error) {
-            console.error('Silent editor creation failed:', error);
-            if (fileContent) {
-                this.createFallbackEditor(file, fileContent, fileContainer);
-            }
-        }
-    }
-
-    private createFallbackEditor(file: TFile, fileContent: Element, fileContainer: Element): void {
-        console.warn('Creating fallback textarea editor');
-        if (!this.isHTMLElement(fileContent)) {
-            console.error('fileContent is not an HTMLElement');
-            return;
-        }
-
-        fileContent.empty();
-        const container = fileContent.createDiv('fallback-editor-container');
-        const textarea = container.createEl('textarea', {
-            cls: 'fallback-inline-editor',
-            attr: { 
-                placeholder: 'Loading content...',
-                style: 'width: 100%; min-height: 200px; resize: vertical;'
-            }
-        });
-
-        // Create overlay for click-outside detection
-        const overlay = createDiv('focus-trap-overlay');
-        overlay.setAttribute('style', `
-            position: fixed !important;
-            top: 0 !important;
-            left: 0 !important;
-            right: 0 !important;
-            bottom: 0 !important;
-            z-index: 999998 !important;
-            background: transparent;
-            pointer-events: auto;
-        `);
-        document.body.appendChild(overlay);
-
-        // Load file content
-        this.app.vault.read(file).then(content => {
-            textarea.value = content;
-            textarea.focus();
-        }).catch(error => {
-            console.error('Error loading file content:', error);
-            textarea.value = 'Error loading file content';
-        });
-
-        // Setup save functionality
-        const saveAndExit = async () => {
-            try {
-                await this.app.vault.modify(file, textarea.value);
-                await this.cleanupActiveEditor();
-                
-                if (this.isHTMLElement(fileContent)) {
-                    await this.renderFileContent(file, fileContent);
-                }
-            } catch (error) {
-                console.error('Error saving fallback editor:', error);
-                new Notice('Failed to save file');
-            }
-        };
-
-        // Exit handlers
-        const keyboardHandler = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') {
-                event.preventDefault();
-                saveAndExit();
-            } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-                event.preventDefault();
-                saveAndExit();
-            }
-        };
-
-        // Click outside handler
-        const clickOutsideHandler = (event: MouseEvent) => {
-            if (event.target === overlay) {
-                saveAndExit();
-            }
-        };
-
-        // Add event listeners
-        textarea.addEventListener('keydown', keyboardHandler);
-        overlay.addEventListener('click', clickOutsideHandler);
-        document.addEventListener('keydown', keyboardHandler);
-
-        // Store reference for cleanup
-        this.activeEditor = {
-            file: file,
-            container: fileContainer,
-            leaf: null,
-            fallbackElement: textarea,
-            overlay: overlay,
-            handlers: [
-                () => textarea.removeEventListener('keydown', keyboardHandler),
-                () => overlay.removeEventListener('click', clickOutsideHandler),
-                () => document.removeEventListener('keydown', keyboardHandler),
-                () => {
-                    if (overlay.parentNode) {
-                        overlay.parentNode.removeChild(overlay);
-                    }
-                    fileContainer.removeClass('editing-active');
-                }
-            ],
-            cleanup: () => textarea.remove()
-        };
-
-        // Add visual indication of edit mode
-        fileContainer.addClass('editing-active');
-    }
-
-    private setupEditorExitHandlers(view: MarkdownView, fileContainer: Element, file: TFile, overlay: HTMLElement) {
-        const saveAndExit = async () => {
-            try {
-                const content = view.editor.getValue();
-                await this.app.vault.modify(file, content);
-                await this.cleanupActiveEditor();
-                
-                const fileContent = fileContainer.querySelector('.file-content');
-                if (fileContent && this.isHTMLElement(fileContent)) {
-                    await this.renderFileContent(file, fileContent);
-                }
-            } catch (error) {
-                console.error('Error saving editor:', error);
-                new Notice('Failed to save file');
-            }
-        };
-
-        // Improved selective event handling with better scroll support
-        const selectiveHandler = (event: Event) => {
-            const target = event.target as Element;
-            const editorElement = this.activeEditor?.editorElement;
-            
-            if (!editorElement) return;
-
-            // Always allow events within editor area
-            if (editorElement.contains(target)) {
-                return; // Let event proceed normally
-            }
-
-            // Allow all scroll events
-            if (event.type === 'wheel' || event.type === 'scroll') {
-                return; // Let scroll events proceed
-            }
-
-            // Handle container interactions
-            const isInContainer = 
-                target.closest('.file-content-container') || 
-                target.closest('.enhanced-continuous-container') ||
-                this.contentContainer?.contains(target);
-
-            if (isInContainer) {
-                // Allow scrolling in containers
-                if (event.type === 'wheel' || event.type === 'scroll') {
-                    return;
-                }
-                
-                // For clicks in container, refocus editor but don't block
-                if (event.type === 'mousedown' || event.type === 'click') {
-                    requestAnimationFrame(() => {
-                        if (editorElement instanceof HTMLElement && editorElement.focus) {
-                            editorElement.focus();
-                        }
-                    });
-                    return;
-                }
-            }
-
-            // Handle keyboard events
-            if (event instanceof KeyboardEvent) {
-                // Exit key combinations
-                if (event.key === 'Escape' || (event.key === 'Enter' && (event.ctrlKey || event.metaKey))) {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    saveAndExit();
-                    return;
-                }
-                
-                // Block other keyboard events outside editor
-                if (!editorElement.contains(target)) {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    if (editorElement instanceof HTMLElement && editorElement.focus) {
-                        editorElement.focus();
-                    }
-                    return;
-                }
-            }
-
-            // Click outside editor area
-            if (event.type === 'mousedown' && event.target === overlay) {
-                event.preventDefault();
-                event.stopPropagation();
-                saveAndExit();
-                return;
-            }
-
-            // For any other click outside, ensure focus stays in editor
-            if (event.type === 'mousedown' && !editorElement.contains(target)) {
-                requestAnimationFrame(() => {
-                    if (editorElement instanceof HTMLElement && editorElement.focus) {
-                        editorElement.focus();
-                    }
-                });
-            }
-        };
-
-        // Set overlay to not block pointer events by default
-        overlay.style.pointerEvents = 'none';
-
-        // Register only necessary event handlers
-        const eventTypes = ['keydown', 'mousedown', 'click'];
-        eventTypes.forEach(eventType => {
-            document.addEventListener(eventType, selectiveHandler, {
-                capture: true,
-                passive: false
-            });
-        });
-
-        // Store cleanup functions
-        if (this.activeEditor) {
-            this.activeEditor.handlers = [
-                ...eventTypes.map(eventType => () => 
-                    document.removeEventListener(eventType, selectiveHandler, { capture: true })
-                ),
-                () => {
-                    if (overlay.parentNode) {
-                        overlay.parentNode.removeChild(overlay);
-                    }
-                    fileContainer.removeClass('editing-active');
-                }
-            ];
-        }
-    }
-
-    async cleanupActiveEditor() {
-        if (!this.activeEditor) return;
-
-        try {
-            // Clean up all registered handlers first
-            if (this.activeEditor.handlers) {
-                this.activeEditor.handlers.forEach(handler => {
-                    try { handler(); } catch (e) { console.error('Handler cleanup error:', e); }
-                });
-            }
-
-            // Clean up all specific cleanup handlers
-            const cleanupFunctions = [
-                this.activeEditor.cleanup,
-                this.activeEditor.scrollCleanup,
-                this.activeEditor.clickCleanup,
-                this.activeEditor.selectiveCleanup
-            ];
-
-            for (const cleanup of cleanupFunctions) {
-                if (cleanup) {
-                    try { cleanup(); } catch (e) { console.error('Specific cleanup error:', e); }
-                }
-            }
-
-            // CRITICAL: Restore editor element BEFORE detaching leaf
-            if (this.activeEditor.editorElement && this.activeEditor.originalParent) {
-                try {
-                    if (this.activeEditor.editorElement instanceof HTMLElement) {
-                        this.activeEditor.editorElement.style.opacity = '0';
-                        this.activeEditor.editorElement.style.position = '';
-                        this.activeEditor.editorElement.style.left = '';
-                    }
-                    this.activeEditor.editorElement.detach();
-                    this.activeEditor.originalParent.appendChild(this.activeEditor.editorElement);
-                } catch (e) {
-                    console.error('Editor restoration error:', e);
-                }
-            }
-
-            // Proper leaf cleanup to prevent workspace corruption
-            if (this.activeEditor.leaf) {
-                try {
-                    const containerEl = (this.activeEditor.leaf as any).containerEl;
-                    if (containerEl) {
-                        // Reset container styles
-                        containerEl.style.display = '';
-                        containerEl.style.position = '';
-                        containerEl.style.left = '';
-                        containerEl.style.top = '';
-                        containerEl.style.opacity = '';
-                        containerEl.style.visibility = '';
-                    }
-
-                    // Wait a frame before detaching to ensure styles are applied
-                    await new Promise(resolve => requestAnimationFrame(resolve));
-
-                    // Remove from workspace references before detaching
-                    const workspace = this.app.workspace;
-                    if (workspace.activeLeaf === this.activeEditor.leaf) {
-                        workspace.activeLeaf = null;
-                    }
-
-                    // Force detach the leaf completely
-                    this.activeEditor.leaf.detach();
-
-                } catch (e) {
-                    console.error('Leaf cleanup error:', e);
-                }
-            }
-
-            // Clean up overlay if it exists
-            if (this.activeEditor.overlay && this.activeEditor.overlay.parentNode) {
-                this.activeEditor.overlay.parentNode.removeChild(this.activeEditor.overlay);
-            }
-
-            // Remove editing state from container
-            if (this.activeEditor.container) {
-                this.activeEditor.container.removeClass('editing-active');
-            }
-
-        } catch (error) {
-            console.error('Complete cleanup error:', error);
-            // Last resort: force detach leaf
-            if (this.activeEditor.leaf) {
-                try { 
-                    this.activeEditor.leaf.detach(); 
-                } catch (e) { 
-                    console.error('Force detach failed:', e); 
-                }
-            }
-        }
-
-        this.activeEditor = null;
-    }
-
-    private async appendFilesToDOM(files: TFile[]) {
-        const fragment = document.createDocumentFragment();
-        
-        // Create all elements first (without observing)
-        for (const file of files) {
-            const element = await this.createFileElement(file);
-            fragment.appendChild(element);
-            console.debug(`Created element for file: ${file.path}`);
-        }
-        
-        // Add entire fragment to DOM
-        this.contentContainer.appendChild(fragment);
-        
-        // CRITICAL: Observe elements AFTER they're in DOM with delay
-        setTimeout(() => {
-            files.forEach(file => {
-                const element = this.contentContainer.querySelector(`[data-file-name="${file.path}"]`);
-                if (element) {
-                    this.activeFileObserver.observe(element);
-                    console.debug(`Added observer for file: ${file.path}`);
-                } else {
-                    console.warn(`Element not found for observation: ${file.path}`);
-                }
-            });
-        }, 100); // Small delay ensures DOM is ready
-    }
-
-    private async prependFilesToDOM(files: TFile[]) {
-        const fragment = document.createDocumentFragment();
-        
-        // Create elements in reverse order for prepending
-        for (const file of files.reverse()) {
-            const element = await this.createFileElement(file);
-            fragment.prepend(element);
-            console.debug(`Created element for prepended file: ${file.path}`);
-        }
-        
-        this.contentContainer.prepend(fragment);
-        
-        // CRITICAL: Re-establish active file observation  
-        files.forEach(file => {
-            const element = this.contentContainer.querySelector(`[data-file-name="${file.path}"]`);
-            if (element) {
-                this.activeFileObserver.observe(element);
-                console.debug(`Added observer for prepended file: ${file.path}`);
-            }
-        });
-    }
-
-    private removeFileFromDOM(filePath: string) {
-        const element = this.contentContainer.querySelector(`[data-file-name="${filePath}"]`);
-        if (element) {
-            this.activeFileObserver.unobserve(element);
-            element.remove();
-        }
-    }
-
-    private removeFilesFromDOM(files: TFile[]) {
-        files.forEach(file => {
-            const element = this.contentContainer.querySelector(`[data-file-name="${file.path}"]`);
-            if (element) {
-                // Properly unobserve before removing
-                this.activeFileObserver.unobserve(element);
-                element.remove();
-                console.debug(`Removed and unobserved file: ${file.path}`);
-            }
-        });
-    }
-
-    private createScrollElements(container: HTMLElement) {
-        // Create drop zone at the top
-        this.dropZone = container.createDiv({
-            cls: 'file-drop-zone',
-            text: 'Drop files here to add to continuous view'
-        });
-        this.dropZone.style.cssText = `
-            border: 2px dashed var(--background-modifier-border);
-            padding: 20px;
-            text-align: center;
-            color: var(--text-muted);
-            margin-bottom: 10px;
-            border-radius: 4px;
-            transition: all 0.2s ease-in-out;
-            display: none;
-        `;
-
-        // Create indicators (initially hidden)
-        this.topIndicator = container.createDiv({
-            cls: "scroll-indicator top-indicator",
-            text: "⇈",
-            attr: { style: "display: none;" }
-        });
-        
-        // Create sentinels (minimal height, invisible)
-        this.topSentinel = container.createDiv({
-            cls: "scroll-sentinel top-sentinel",
-            attr: { style: "height: 1px; width: 100%; opacity: 0;" }
-        });
-        
-        // Main content container
-        this.contentContainer = container.createDiv("file-content-container");
-        
-        // Bottom sentinel
-        this.bottomSentinel = container.createDiv({
-            cls: "scroll-sentinel bottom-sentinel", 
-            attr: { style: "height: 1px; width: 100%; opacity: 0;" }
-        });
-        
-        // Bottom indicator
-        this.bottomIndicator = container.createDiv({
-            cls: "scroll-indicator bottom-indicator",
-            text: "⇊",
-            attr: { style: "display: none;" }
-        });
-
-        // Setup drop zone handlers
-        this.setupDropZone();
-        
-        // FIXED: Force re-initialization of observers
-        setTimeout(() => {
-            console.debug("Setting up observers after DOM ready");
-            
-            // Always recreate observers to ensure they're active
-            this.setupIntersectionObserver();
-            this.setupActiveFileObserver();
-            
-            // Verify observers exist before using
-            if (this.intersectionObserver && this.bottomSentinel) {
-                this.intersectionObserver.observe(this.bottomSentinel);
-                this.bottomIndicator.style.display = "block";
-                console.debug("Bottom sentinel initially observed");
-            } else {
-                console.error("Observer or sentinel missing after setup");
-            }
-            
-            console.debug("Initial observers setup complete");
-        }, 150);
-    }
-
-    private updateScrollElements() {
-        console.debug('UpdateScrollElements called', {
-            currentIndex: this.currentIndex,
-            loadedFilesCount: this.loadedFiles.length,
-            totalFiles: this.allFiles.length
-        });
-        
-        // Ensure observer exists before disconnect
-        if (!this.intersectionObserver) {
-            console.warn("Intersection observer missing, recreating...");
-            this.setupIntersectionObserver();
-        }
-        
-        this.intersectionObserver.disconnect();
-        
-        // Top sentinel logic
-        if (this.currentIndex > 0) {
-            this.intersectionObserver.observe(this.topSentinel);
-            this.topIndicator.style.display = "block";
-            console.debug('Top sentinel re-observed');
-        } else {
-            this.topIndicator.style.display = "none";
-        }
-        
-        // Bottom sentinel logic - CRITICAL FIX
-        const totalAccessible = this.currentIndex + this.loadedFiles.length;
-        const hasMoreFiles = totalAccessible < this.allFiles.length;
-        
-        if (hasMoreFiles) {
-            this.intersectionObserver.observe(this.bottomSentinel);
-            this.bottomIndicator.style.display = "block";
-            console.debug(`Bottom sentinel re-observed. Accessible: ${totalAccessible}, Total: ${this.allFiles.length}`);
-        } else {
-            this.bottomIndicator.style.display = "none";
-            console.debug(`At end. Accessible: ${totalAccessible}, Total: ${this.allFiles.length}`);
-        }
-    }
-
+    // Show folder selector UI
     private showFolderSelector(container: HTMLElement) {
         const selectorContainer = container.createDiv('folder-selector-container');
         selectorContainer.createEl('h3', { text: 'Select a folder to scroll through' });
         const button = selectorContainer.createEl('button', { text: 'Choose Folder', cls: 'mod-cta' });
-        button.onclick = () => new FolderSuggestionModal(this.app, (folder: TFolder) => this.plugin.activateView(folder)).open();
+        button.onclick = () => new FolderSuggestionModal(this.app, (folder: TFolder) => (this.plugin as any).activateView(folder)).open();
+    }
+
+    // Clean up any active inline editor/resources
+    private async cleanupActiveEditor() {
+        if (!this.activeEditor) return;
+        try {
+            // Remove overlay if any
+            if (this.activeEditor.overlay && this.activeEditor.overlay.parentNode) {
+                this.activeEditor.overlay.parentNode.removeChild(this.activeEditor.overlay);
+            }
+            // Call any registered handlers
+            if (this.activeEditor.handlers) {
+                this.activeEditor.handlers.forEach(h => { try { h(); } catch {} });
+            }
+            // Move editor element back if possible
+            const editorEl = this.activeEditor.editorElement as HTMLElement | undefined;
+            const originalParent = this.activeEditor.originalParent as HTMLElement | undefined;
+            if (editorEl && originalParent && !originalParent.contains(editorEl)) {
+                try {
+                    originalParent.appendChild(editorEl);
+                } catch {}
+            }
+            // Detach hidden leaf
+            if (this.activeEditor.leaf) {
+                try { this.activeEditor.leaf.detach(); } catch {}
+            }
+            // Remove editing class
+            if (this.activeEditor.container && (this.activeEditor.container as any).removeClass) {
+                (this.activeEditor.container as any).removeClass('editing-active');
+            }
+        } catch (e) {
+            console.error('Cleanup editor error:', e);
+        }
+        this.activeEditor = null;
+    }
+
+    // General resource cleanup when changing folders
+    private async cleanupResources() {
+        await this.cleanupActiveEditor();
+        try {
+            if (this.intersectionObserver) this.intersectionObserver.disconnect();
+            if (this.activeFileObserver) this.activeFileObserver.disconnect();
+        } catch {}
+        if (this.lastHighlighted) {
+            this.lastHighlighted.removeClass('is-active-in-continuous-view');
+            this.lastHighlighted = null;
+        }
+        this.loadedFiles = [];
+        this.allFiles = [];
+        this.currentFolder = null;
+        this.currentIndex = 0;
+        if (this.contentContainer) this.contentContainer.empty();
+    }
+
+    // Update view header text if folder changes
+    private updateDisplayText() {
+        const newDisplayText = this.currentFolder ? `Continuous: ${this.currentFolder.name}` : 'Enhanced Continuous View';
+        if (this.getDisplayText() !== newDisplayText) (this.leaf as any).rebuildView?.();
     }
 
     private showEmptyFolderMessage() {
+        if (!this.contentContainer) return;
         this.contentContainer.empty();
-        this.contentContainer.createEl('p', {text: "This folder contains no markdown files."});
+        this.contentContainer.createEl('p', { text: 'This folder contains no markdown files.' });
     }
 
-    private async cleanupResources() {
+    // Create scroll-related elements and drop zone container
+    private createScrollElements(container: HTMLElement) {
+        // Remove the global drop zone completely - inter-file zones handle all scenarios
+        
+        // Keep existing scroll indicators and sentinels
+        this.topIndicator = container.createDiv({
+            cls: 'scroll-indicator top-indicator',
+            text: '⇈'
+        });
+        this.topIndicator.style.display = 'none';
+        
+        this.topSentinel = container.createDiv({
+            cls: 'scroll-sentinel top-sentinel'
+        });
+        this.topSentinel.setAttr('style', 'height: 1px; width: 100%; opacity: 0;');
+        
+        this.contentContainer = container.createDiv('file-content-container');
+        
+        this.bottomSentinel = container.createDiv({
+            cls: 'scroll-sentinel bottom-sentinel'
+        });
+        this.bottomSentinel.setAttr('style', 'height: 1px; width: 100%; opacity: 0;');
+        
+        this.bottomIndicator = container.createDiv({
+            cls: 'scroll-indicator bottom-indicator',
+            text: '⇊'
+        });
+        this.bottomIndicator.style.display = 'none';
+        
+        // Keep existing intersection observer setup
+        if (this.intersectionObserver) {
+            this.intersectionObserver.observe(this.bottomSentinel);
+            this.bottomIndicator.style.display = 'block';
+        }
+    }
+
+    // Update which sentinels are observed based on current window
+    private updateScrollElements() {
+        if (!this.intersectionObserver) return;
+        this.intersectionObserver.disconnect();
+
+        // Top sentinel
+        if (this.currentIndex > 0) {
+            this.intersectionObserver.observe(this.topSentinel);
+            this.topIndicator.style.display = 'block';
+        } else {
+            this.topIndicator.style.display = 'none';
+        }
+
+        // Bottom sentinel
+        const totalAccessible = this.currentIndex + this.loadedFiles.length;
+        const hasMore = totalAccessible < this.allFiles.length;
+        if (hasMore) {
+            this.intersectionObserver.observe(this.bottomSentinel);
+            this.bottomIndicator.style.display = 'block';
+        } else {
+            this.bottomIndicator.style.display = 'none';
+        }
+    }
+
+    // Append a set of files to the DOM and register observers
+    private async appendFilesToDOM(files: TFile[]) {
+        const fragment = document.createDocumentFragment();
+        for (const file of files) {
+            const element = await this.createFileElement(file);
+            fragment.appendChild(element);
+        }
+        this.contentContainer.appendChild(fragment);
+
+        // Observe new elements
+        files.forEach(f => {
+            const el = this.contentContainer.querySelector(`[data-file-name="${f.path}"]`);
+            if (el) this.activeFileObserver.observe(el);
+        });
+    }
+
+    // Prepend a set of files to the DOM and register observers
+    private async prependFilesToDOM(files: TFile[]) {
+        const fragment = document.createDocumentFragment();
+        for (const file of [...files].reverse()) {
+            const element = await this.createFileElement(file);
+            fragment.prepend(element);
+        }
+        this.contentContainer.prepend(fragment);
+
+        files.forEach(f => {
+            const el = this.contentContainer.querySelector(`[data-file-name="${f.path}"]`);
+            if (el) this.activeFileObserver.observe(el);
+        });
+    }
+
+    // Remove multiple files' elements from DOM
+    private removeFilesFromDOM(files: TFile[]) {
+        files.forEach(file => this.removeFileFromDOM(file.path));
+    }
+
+    // Remove a single file element
+    private removeFileFromDOM(filePath: string) {
+        const el = this.contentContainer.querySelector(`[data-file-name="${filePath}"]`);
+        if (el) {
+            if (this.activeFileObserver) this.activeFileObserver.unobserve(el);
+            el.remove();
+        }
+    }
+
+    // Exclude a file from view and data model
+    private excludeFile(fileToExclude: TFile) {
+        this.allFiles = this.allFiles.filter(f => f.path !== fileToExclude.path);
+        this.loadedFiles = this.loadedFiles.filter(f => f.path !== fileToExclude.path);
+        this.removeFileFromDOM(fileToExclude.path);
+        new Notice(`"${fileToExclude.basename}" excluded from view.`);
+        this.updateScrollElements();
+    }
+
+    // Switch to native Obsidian editor in-place
+    private async switchToEditorView(file: TFile, container: Element) {
+        if (this.activeEditor) await this.cleanupActiveEditor();
+        const fileContent = container.querySelector('.file-content');
+        if (!fileContent || !this.isHTMLElement(fileContent)) return;
         try {
-            // Clean up active editor first
-            await this.cleanupActiveEditor();
-
-            // Clean up observers
-            if (this.intersectionObserver) {
-                this.intersectionObserver.disconnect();
-                // Create new disconnected observer to satisfy type
-                this.intersectionObserver = new IntersectionObserver(() => {});
-                this.intersectionObserver.disconnect();
+            const leaf = this.app.workspace.createLeafInParent(this.app.workspace.rootSplit, -1);
+            const leafContainer = (leaf as any).containerEl as HTMLElement | undefined;
+            if (leafContainer && this.isHTMLElement(leafContainer)) {
+                leafContainer.setAttribute('style', `position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0;visibility:hidden;pointer-events:none;`);
             }
-            if (this.activeFileObserver) {
-                this.activeFileObserver.disconnect();
-                // Create new disconnected observer to satisfy type
-                this.activeFileObserver = new IntersectionObserver(() => {});
-                this.activeFileObserver.disconnect();
+            await leaf.openFile(file);
+            const markdownView = (leaf as any).view as MarkdownView;
+            if (!(markdownView instanceof MarkdownView) || !(markdownView as any).editor) {
+                console.error('Failed to get MarkdownView or editor');
+                leaf.detach();
+                return;
             }
-
-            // Clean up highlight
-            if (this.lastHighlighted) {
-                this.lastHighlighted.removeClass('is-active-in-continuous-view');
-                this.lastHighlighted = null;
+            const originalParent = (markdownView as any).contentEl as HTMLElement | null | undefined;
+            const editorElement = originalParent?.querySelector('.cm-editor, .markdown-source-view') as HTMLElement | null | undefined;
+            if (!editorElement || !this.isHTMLElement(editorElement)) {
+                console.error('Could not find valid editor element');
+                leaf.detach();
+                return;
             }
-
-            // Clean up loaded files and observers
-            if (this.loadedFiles.length > 0) {
-                this.loadedFiles.forEach(file => {
-                    const element = this.contentContainer?.querySelector(`[data-file-name="${file.path}"]`);
-                    if (element) {
-                        // Remove all event listeners by cloning
-                        const headerEl = element.querySelector('.file-header');
-                        if (headerEl) {
-                            const clone = headerEl.cloneNode(true);
-                            headerEl.parentNode?.replaceChild(clone, headerEl);
-                        }
-
-                        const contentEl = element.querySelector('.file-content');
-                        if (contentEl) {
-                            const clone = contentEl.cloneNode(true);
-                            contentEl.parentNode?.replaceChild(clone, contentEl);
-                        }
-
-                        // Remove from observer
-                        if (this.activeFileObserver) {
-                            this.activeFileObserver.unobserve(element);
-                        }
-                        element.remove();
-                    }
-                });
-            }
-
-            // Reset state
-            this.loadedFiles = [];
-            this.allFiles = [];
-            this.currentFolder = null;
-            this.currentIndex = 0;
-
-            // Clean up DOM elements
-            if (this.contentContainer) {
-                // Remove all event listeners by cloning
-                const clone = this.contentContainer.cloneNode(false) as HTMLElement;
-                if (this.contentContainer.parentNode) {
-                    this.contentContainer.parentNode.replaceChild(clone, this.contentContainer);
-                }
-                this.contentContainer = clone;
-                this.contentContainer.empty();
-            }
-
-            // Clean up scroll elements
-            const scrollElements = {
-                topIndicator: createDiv(),
-                topSentinel: createDiv(),
-                bottomSentinel: createDiv(),
-                bottomIndicator: createDiv()
-            };
-
-            // Clean up and replace scroll elements
-            ['topIndicator', 'topSentinel', 'bottomSentinel', 'bottomIndicator'].forEach(elementName => {
-                const element = this[elementName as keyof typeof scrollElements] as HTMLElement;
-                if (element && element.parentNode) {
-                    const clone = element.cloneNode(false) as HTMLElement;
-                    element.parentNode.replaceChild(clone, element);
-                }
-                this[elementName as keyof typeof scrollElements] = scrollElements[elementName as keyof typeof scrollElements];
+            fileContent.empty();
+            const wrapper = fileContent.createDiv('native-editor-wrapper');
+            const header = wrapper.createDiv('editor-header');
+            header.setAttribute('style', 'display:flex;justify-content:flex-end;padding:4px;border-bottom:1px solid var(--background-modifier-border);background-color:var(--background-secondary);');
+            const exitButton = header.createEl('button', { cls: 'exit-editor-button', attr: { 'aria-label': 'Exit Editor', style: 'display:flex;align-items:center;padding:4px 8px;border-radius:4px;color:var(--text-muted);background-color:var(--background-secondary);border:1px solid var(--background-modifier-border);cursor:pointer;font-size:12px;' } });
+            exitButton.innerHTML = 'Exit';
+            exitButton.addEventListener('click', async () => {
+                const content = (markdownView as any).editor.getValue();
+                await this.app.vault.modify(file, content);
+                await this.cleanupActiveEditor();
+                await this.renderFileContent(file, fileContent);
             });
-
-            // Clean up debounced functions
-            if (this.loadNextFilesDebounced) {
-                // @ts-ignore - Clear timeout reference
-                clearTimeout(this.loadNextFilesDebounced.timeout);
-                this.loadNextFilesDebounced = this.debounce(this.loadNextFiles.bind(this), 200);
-            }
-            if (this.loadPreviousFilesDebounced) {
-                // @ts-ignore - Clear timeout reference
-                clearTimeout(this.loadPreviousFilesDebounced.timeout);
-                this.loadPreviousFilesDebounced = this.debounce(this.loadPreviousFiles.bind(this), 200);
-            }
-
-            // Re-initialize observers if needed
-            if (!this.intersectionObserver) {
-                this.setupIntersectionObserver();
-            }
-            if (!this.activeFileObserver) {
-                this.setupActiveFileObserver();
-            }
-
-        } catch (error) {
-            console.error('Resource cleanup error:', error);
-            // Attempt to reset state even if cleanup fails
-            this.loadedFiles = [];
-            this.allFiles = [];
-            this.currentFolder = null;
-            this.currentIndex = 0;
-            if (this.contentContainer) {
-                this.contentContainer.empty();
-            }
-        }
-
-        // Force hint to garbage collector
-        if (typeof global !== 'undefined' && global.gc) {
-            try {
-                global.gc();
-            } catch (e) {
-                console.debug('Manual GC not available');
-            }
+            wrapper.setAttribute('style', 'width:100%;max-height:400px;overflow:hidden !important;border:2px solid var(--interactive-accent);border-radius:4px;position:relative;z-index:1000000;background-color:var(--background-primary);');
+            const editorContainer = wrapper.createDiv('editor-container');
+            editorContainer.setAttribute('style', 'width:100%;max-height:358px;overflow:auto !important;');
+            editorElement.setAttribute('style', 'width:100%;min-height:200px;max-height:none;opacity:0;transition:opacity .2s ease-in-out;');
+            try { (editorElement as any).detach ? (editorElement as any).detach() : editorElement.remove(); } catch { if (editorElement.parentElement) editorElement.parentElement.removeChild(editorElement); }
+            editorContainer.appendChild(editorElement);
+            const overlay = createDiv('focus-trap-overlay');
+            overlay.setAttribute('style', 'position:fixed !important;top:0 !important;left:0 !important;right:0 !important;bottom:0 !important;z-index:999998 !important;background:transparent;pointer-events:none;');
+            document.body.appendChild(overlay);
+            this.activeEditor = { file, container, leaf, markdownView, editorElement, originalParent: originalParent || undefined, overlay } as ActiveEditor;
+            this.setupEditorExitHandlers(markdownView, container, file, overlay);
+            requestAnimationFrame(() => { editorElement.style.opacity = '1'; });
+            setTimeout(() => { if ((markdownView as any).editor?.focus) (markdownView as any).editor.focus(); }, 250);
+            (container as HTMLElement).addClass('editing-active');
+            exitButton.addEventListener('mouseenter', () => { exitButton.style.backgroundColor = 'var(--interactive-hover)'; });
+            exitButton.addEventListener('mouseleave', () => { exitButton.style.backgroundColor = 'var(--background-secondary)'; });
+        } catch (err) {
+            console.error('Editor creation failed:', err);
         }
     }
 
-    private updateDisplayText() {
-        const newDisplayText = this.currentFolder ? `Continuous: ${this.currentFolder.name}` : 'Enhanced Continuous View';
-        if (this.getDisplayText() !== newDisplayText) (this.leaf as any).rebuildView();
+    private setupEditorExitHandlers(markdownView: MarkdownView, container: Element, file: TFile, overlay: HTMLElement) {
+        const exit = async () => {
+            try { const content = (markdownView as any).editor.getValue(); await this.app.vault.modify(file, content); } catch {}
+            await this.cleanupActiveEditor();
+            const fileContent = container.querySelector('.file-content') as HTMLElement | null;
+            if (fileContent) await this.renderFileContent(file, fileContent);
+        };
+        const onKeyDown = async (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); await exit(); } };
+        const onClick = async (e: MouseEvent) => { const wrapper = (container as HTMLElement).querySelector('.native-editor-wrapper'); if (wrapper && !wrapper.contains(e.target as Node)) { await exit(); } };
+        document.addEventListener('keydown', onKeyDown, true);
+        document.addEventListener('mousedown', onClick, true);
+        const handlers: (() => void)[] = [ () => document.removeEventListener('keydown', onKeyDown, true), () => document.removeEventListener('mousedown', onClick, true) ];
+        if (!this.activeEditor) this.activeEditor = { file, container, leaf: null } as any;
+        if (this.activeEditor) this.activeEditor.handlers = handlers;
     }
 
-    setupDropZone() {
-        let dragCounter = 0;
-
-        this.registerDomEvent(this.containerEl, 'dragenter', (e: DragEvent) => {
-            if (this.isDraggedFileCompatible(e)) {
-                e.preventDefault();
-                dragCounter++;
-                this.dropZone.style.display = 'block';
-            }
-        });
-
-        this.registerDomEvent(this.containerEl, 'dragover', (e: DragEvent) => {
-            if (this.isDraggedFileCompatible(e)) {
-                e.preventDefault();
-            }
-        });
-
-        this.registerDomEvent(this.containerEl, 'dragleave', (e: DragEvent) => {
-            dragCounter--;
-            if (dragCounter === 0) {
-                this.dropZone.style.display = 'none';
-            }
-        });
-
-        this.registerDomEvent(this.containerEl, 'drop', (e: DragEvent) => {
-            dragCounter = 0;
-            this.dropZone.style.display = 'none';
+    // Drag-and-drop header-only setup
+    private setupIndividualDropZone(dropZone: HTMLElement, fileContainer: HTMLElement): void {
+        const fileHeader = fileContainer.querySelector('.file-header') as HTMLElement | null;
+        
+        if (!fileHeader) {
+            console.warn('File header not found for drop zone setup');
+            return;
+        }
+        
+        // Header drag enter - shows drop zone
+        fileHeader.addEventListener('dragenter', (e: DragEvent) => {
             if (this.isDraggedFileCompatible(e)) {
                 e.preventDefault();
                 e.stopPropagation();
-                this.handleFileDrop(e);
+                
+                dropZone.style.display = 'block';
+                dropZone.style.opacity = '1';
+                dropZone.style.borderColor = 'var(--interactive-accent)';
+                dropZone.style.backgroundColor = 'var(--background-secondary)';
+                
+                console.debug(`Showing drop zone for: ${fileContainer.dataset.fileName}`);
+            }
+        });
+        
+        // CRITICAL: Add drag handlers to DROP ZONE itself
+        dropZone.addEventListener('dragenter', (e: DragEvent) => {
+            if (this.isDraggedFileCompatible(e)) {
+                e.preventDefault();
+                e.stopPropagation();
+                console.debug('Drag entered drop zone');
+            }
+        });
+        
+        dropZone.addEventListener('dragover', (e: DragEvent) => {
+            if (this.isDraggedFileCompatible(e)) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+                console.debug('Drag over drop zone');
+            }
+        });
+        
+        dropZone.addEventListener('dragleave', (e: DragEvent) => {
+            // Only hide if leaving the drop zone completely
+            const related = e.relatedTarget as Node | null;
+            if (!related || !dropZone.contains(related)) {
+                dropZone.style.display = 'none';
+                dropZone.style.opacity = '0';
+                console.debug('Drag left drop zone');
+            }
+        });
+        
+        // Enhanced drop handler with better logging
+        dropZone.addEventListener('drop', async (e: DragEvent) => {
+            console.debug('=== DROP EVENT FIRED ===');
+            console.debug('Event:', e);
+            console.debug('DataTransfer:', e.dataTransfer);
+            console.debug('DataTransfer types:', e.dataTransfer?.types);
+            
+            if (this.isDraggedFileCompatible(e)) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                console.debug(`Drop on drop zone for: ${fileContainer.dataset.fileName}`);
+                
+                const targetFilePath = (dropZone as any).dataset?.targetFile as string | undefined;
+                const position = (dropZone as any).dataset?.dropPosition as 'above' | 'below' | undefined;
+                
+                console.debug(`Target: ${targetFilePath}, Position: ${position}`);
+                
+                await this.handleFileDropAtPosition(e, targetFilePath, position);
+                
+                // Hide drop zone
+                dropZone.style.display = 'none';
+                dropZone.style.opacity = '0';
+            } else {
+                console.debug('Drop not compatible');
+            }
+        });
+        
+        // ADDITIONAL: Add drag handlers to file header for better UX
+        fileHeader.addEventListener('dragover', (e: DragEvent) => {
+            if (this.isDraggedFileCompatible(e)) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+            }
+        });
+        
+        fileHeader.addEventListener('dragleave', (e: DragEvent) => {
+            const related = e.relatedTarget as Node | null;
+            if (!related || (!fileHeader.contains(related) && !dropZone.contains(related))) {
+                dropZone.style.display = 'none';
+                dropZone.style.opacity = '0';
+                console.debug(`Hiding drop zone for: ${fileContainer.dataset.fileName}`);
             }
         });
     }
 
-    isDraggedFileCompatible(e: DragEvent): boolean {
-        if (!e.dataTransfer) {
-            return false;
+    private isDraggedFileCompatible(e: DragEvent): boolean {
+        if (!e.dataTransfer) return false;
+        const types = Array.from(e.dataTransfer.types || []);
+        console.debug('Drag types detected:', types);
+        
+        // Support for various drag sources
+        if (types.includes('text/plain')) {
+            console.debug('Text/plain detected - likely Obsidian file drag, wiki link, or tab');
+            return true;
         }
-        // Check if dragged data contains file references
-        const types = e.dataTransfer.types;
-        return types.includes('Files') || types.includes('application/x-obsidian-file');
+        
+        if (types.includes('Files')) {
+            console.debug('Files type detected - external file drag');
+            return true;
+        }
+        
+        if (types.includes('text/uri-list')) {
+            console.debug('URI list detected - possible tab or file reference');
+            return true;
+        }
+        
+        // Support for Obsidian-specific formats
+        if (types.includes('application/x-obsidian-file') ||
+            types.includes('application/x-obsidian-tab')) {
+            console.debug('Obsidian specific format detected');
+            return true;
+        }
+        
+        console.debug('No compatible drag types found');
+        return false;
     }
 
-    async handleFileDrop(e: DragEvent) {
-        if (!e.dataTransfer) {
-            return;
-        }
+    private async handleFileDropAtPosition(e: DragEvent, targetFilePath?: string, position?: 'above' | 'below') {
+        console.debug(`HandleFileDropAtPosition: ${targetFilePath}, ${position}`);
         try {
-            const files = Array.from(e.dataTransfer.files);
-            const obsidianFiles: TFile[] = [];
-
-            for (const file of files) {
-                if (file.name.endsWith('.md')) {
-                    // Find corresponding TFile in vault
-                    const tfile = this.app.vault.getMarkdownFiles()
-                        .find(f => f.name === file.name);
-
-                    if (tfile && !this.allFiles.some(f => f.path === tfile.path)) {
-                        obsidianFiles.push(tfile);
+            const newFiles: TFile[] = [];
+            if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('text/plain')) {
+                const textData = e.dataTransfer.getData('text/plain');
+                console.debug('Processing text data:', textData);
+                if (!textData || !this.isValidFileData(textData)) { new Notice('Invalid file drag data'); return; }
+                const filePaths = this.extractFilePathsFromDragData(textData);
+                console.debug('Extracted file paths:', filePaths);
+                for (const filePath of filePaths) {
+                    const tfile = await this.findTFileFromPath(filePath);
+                    if (tfile && tfile.extension === 'md') {
+                        if (!this.allFiles.some(f => f.path === tfile.path)) {
+                            newFiles.push(tfile);
+                            console.debug(`Found TFile for: ${filePath} -> ${tfile.path}`);
+                        }
                     }
                 }
             }
-
-            if (obsidianFiles.length > 0) {
-                // Add to allFiles array
-                this.allFiles.push(...obsidianFiles);
-
-                // Add to current view if we have space
-                const hasSpace = this.loadedFiles.length < this.plugin.settings.maxFileCount;
-                if (hasSpace) {
-                    await this.appendFilesToDOM(obsidianFiles);
-                    this.loadedFiles.push(...obsidianFiles);
-                    this.updateScrollElements();
-                }
-
-                new Notice(`Added ${obsidianFiles.length} file(s) to continuous view`);
-            } else {
-                new Notice('No valid markdown files found or files already in view');
-            }
+            if (newFiles.length === 0) { new Notice('No valid files to add'); return; }
+            let targetIndex = typeof targetFilePath === 'string' ? this.allFiles.findIndex(f => f.path === targetFilePath) : -1;
+            if (targetIndex === -1) targetIndex = this.allFiles.length - 1;
+            const insertIndex = position === 'above' ? targetIndex : targetIndex + 1;
+            console.debug(`Inserting ${newFiles.length} files at index ${insertIndex}`);
+            this.allFiles.splice(insertIndex, 0, ...newFiles);
+            await this.refreshCurrentView();
+            new Notice(`Added ${newFiles.length} file(s) ${position} target file`);
         } catch (error) {
-            console.error('Error handling file drop:', error);
+            console.error('Error handling positioned file drop:', error);
             new Notice('Error adding files to continuous view');
         }
     }
 
-    /**
-     * Combines all files in the current view into a single markdown file.
-     * This function is triggered by a view action.
-     */
-    public async exportToSingleFile() {
-        if (!this.currentFolder || this.allFiles.length === 0) {
-            new Notice('No folder or files to export.');
-            return;
-        }
-        let combinedContent = `# Combined notes from ${this.currentFolder.name}\n\n`;
-        for (const file of this.allFiles) {
-            const content = await this.app.vault.read(file);
-            combinedContent += `\n\n---\n\n## ${file.basename}\n\n${content}`;
-        }
-        const newFileName = `Combined - ${this.currentFolder.name}.md`;
-        let newFilePath = this.currentFolder.isRoot() ? newFileName : `${this.currentFolder.path}/${newFileName}`;
-        try {
-            if (this.app.vault.getAbstractFileByPath(newFilePath)) {
-                new Notice(`File "${newFileName}" already exists. Please rename or remove it first.`);
-                return;
+    private extractFilePathsFromDragData(textData: string): string[] {
+        const paths: string[] = [];
+        let trimmed = (textData || '').trim();
+        
+        console.debug('Raw drag data received:', trimmed);
+        
+        if (!trimmed) return paths;
+        
+        // Handle Obsidian URI format: obsidian://open?vault=VaultName&file=Path%2FTo%2FFile
+        if (trimmed.startsWith('obsidian://open?')) {
+            try {
+                const url = new URL(trimmed);
+                const filePath = url.searchParams.get('file');
+                
+                if (filePath) {
+                    let decodedPath = decodeURIComponent(filePath);
+                    if (!decodedPath.endsWith('.md')) {
+                        decodedPath += '.md';
+                    }
+                    paths.push(decodedPath);
+                    console.debug('Extracted from Obsidian URI:', decodedPath);
+                }
+            } catch (error) {
+                console.error('Failed to parse Obsidian URI:', error);
             }
-            const createdFile = await this.app.vault.create(newFilePath, combinedContent);
-            new Notice(`Successfully exported to "${createdFile.path}".`);
-            this.app.workspace.getLeaf('tab').openFile(createdFile);
+        }
+        // Handle wiki links: [[filename]] or [[filename|display text]]
+        else if (/^\[\[.*\]\]$/.test(trimmed)) {
+            let linkContent = trimmed.slice(2, -2);
+            
+            // Handle alias: [[filename|alias]] -> take only filename part
+            let pipeIndex = linkContent.indexOf('|');
+            if (pipeIndex >= 0) {
+                linkContent = linkContent.slice(0, pipeIndex);
+            }
+            
+            // Handle subpath links: [[filename#section]] -> take only filename part
+            let hashIndex = linkContent.indexOf('#');
+            if (hashIndex >= 0) {
+                linkContent = linkContent.slice(0, hashIndex);
+            }
+            
+            // Handle block references: [[filename^blockid]] -> take only filename part
+            let caretIndex = linkContent.indexOf('^');
+            if (caretIndex >= 0) {
+                linkContent = linkContent.slice(0, caretIndex);
+            }
+            
+            if (!linkContent.endsWith('.md')) {
+                linkContent += '.md';
+            }
+            
+            paths.push(linkContent);
+            console.debug('Extracted from wiki link:', linkContent);
+        }
+        // Handle tab drag (file path with potential tab info)
+        else if (trimmed.includes('/') && (trimmed.includes('.md') || !trimmed.includes('.'))) {
+            // Clean up any tab-specific formatting
+            let cleanPath = trimmed.split('\n')[0]; // Take first line if multi-line
+            // Extract just the .md filename if present
+            const mdMatch = cleanPath.match(/[^\/]+\.md/i);
+            if (mdMatch && mdMatch[0]) {
+                cleanPath = mdMatch[0];
+            }
+            
+            if (!cleanPath.toLowerCase().endsWith('.md') && !cleanPath.includes('.')) {
+                cleanPath += '.md';
+            }
+            
+            paths.push(cleanPath);
+            console.debug('Extracted from tab/path drag:', cleanPath);
+        }
+        // Handle direct file paths or URIs
+        else if (trimmed.includes('/') || trimmed.toLowerCase().endsWith('.md')) {
+            paths.push(trimmed);
+            console.debug('Extracted direct path:', trimmed);
+        }
+        // Handle bare filenames
+        else if (trimmed.length > 0) {
+            let fileName = trimmed.toLowerCase().endsWith('.md') ? trimmed : `${trimmed}.md`;
+            paths.push(fileName);
+            console.debug('Extracted filename:', fileName);
+        }
+        
+        console.debug('Final extracted paths:', paths);
+        return paths.filter(path => path.length > 0);
+    }
+
+    private async findTFileFromPath(filePath: string): Promise<TFile | null> {
+        console.debug('Finding TFile for path:', filePath);
+        if (!filePath) return null;
+        
+        // Try direct path lookup first
+        const direct = this.app.vault.getAbstractFileByPath(filePath);
+        if (direct instanceof TFile) {
+            console.debug('Found by direct path:', direct.path);
+            return direct;
+        }
+        
+        // Extract just the filename for fallback searches
+        let fileName = filePath.split('/').pop() || filePath;
+        
+        // Ensure .md extension
+        if (!fileName.endsWith('.md')) {
+            fileName += '.md';
+        }
+        
+        const markdownFiles = this.app.vault.getMarkdownFiles();
+        
+        // Search by exact filename match
+        let fileByName = markdownFiles.find(f => f.name === fileName) || null;
+        if (fileByName) {
+            console.debug('Found by filename:', fileByName.path);
+            return fileByName;
+        }
+        
+        // Search by basename (without extension)
+        const baseName = fileName.replace('.md', '');
+        let fileByBasename = markdownFiles.find(f => f.basename === baseName) || null;
+        if (fileByBasename) {
+            console.debug('Found by basename:', fileByBasename.path);
+            return fileByBasename;
+        }
+        
+        // Search by partial path matching (for files in subfolders)
+        let fileByPartialPath = markdownFiles.find(f => {
+            try {
+                return (
+                    f.path.endsWith(filePath) ||
+                    f.path.endsWith(filePath.replace('.md', '')) ||
+                    filePath.includes(f.basename) ||
+                    f.basename.toLowerCase() === baseName.toLowerCase()
+                );
+            } catch (error) {
+                return false;
+            }
+        }) || null;
+        
+        if (fileByPartialPath) {
+            console.debug('Found by partial path matching:', fileByPartialPath.path);
+            return fileByPartialPath;
+        }
+        
+        console.debug(`No TFile found for path: ${filePath}`);
+        return null;
+    }
+
+    private isValidFileData(textData: string): boolean {
+        if (!textData || typeof textData !== 'string') {
+            return false;
+        }
+        
+        const trimmed = textData.trim();
+        
+        // Obsidian URI format
+        if (trimmed.startsWith('obsidian://open?')) {
+            console.debug('Valid Obsidian URI detected');
+            return true;
+        }
+        
+        // Wiki link format
+        if (trimmed.startsWith('[[') && trimmed.endsWith(']]')) {
+            console.debug('Valid wiki link detected');
+            return true;
+        }
+        
+        // Tab drag (often contains file path)
+        if (trimmed.includes('/') || trimmed.includes('.md')) {
+            console.debug('Valid file path detected');
+            return true;
+        }
+        
+        // Bare filename or simple text that could be a file
+        if (/^[a-zA-Z0-9\s\-_.#^|]+$/.test(trimmed)) {
+            console.debug('Valid filename characters detected');
+            return true;
+        }
+        
+        console.debug('Invalid file data:', trimmed);
+        return false;
+    }
+
+    private async refreshCurrentView() {
+        const containerEl = this.containerEl.children[1] as HTMLElement;
+        const scrollTop = containerEl?.scrollTop || 0;
+        this.contentContainer.empty();
+        const startIndex = this.currentIndex;
+        const endIndex = Math.min(startIndex + this.plugin.settings.maxFileCount, this.allFiles.length);
+        this.loadedFiles = this.allFiles.slice(startIndex, endIndex);
+        await this.appendFilesToDOM(this.loadedFiles);
+        this.updateScrollElements();
+        setTimeout(() => { const cont = this.containerEl.children[1] as HTMLElement; if (cont) cont.scrollTop = scrollTop; }, 50);
+    }
+
+    public async exportToSingleFile() {
+        if (!this.currentFolder || this.allFiles.length === 0) { new Notice('No folder or files to export.'); return; }
+        let combinedContent = `# Combined notes from ${this.currentFolder.name}\n\n`;
+        for (const file of this.allFiles) { const content = await this.app.vault.read(file); combinedContent += `\n\n---\n\n## ${file.basename}\n\n${content}`; }
+        const newFileName = `Combined - ${this.currentFolder.name}.md`;
+        const newFilePath = this.currentFolder.isRoot() ? newFileName : `${this.currentFolder.path}/${newFileName}`;
+        try {
+            if (this.app.vault.getAbstractFileByPath(newFilePath)) { new Notice(`File "${newFileName}" already exists. Please rename or remove it first.`); return; }
+            const created = await this.app.vault.create(newFilePath, combinedContent);
+            new Notice(`Successfully exported to "${created.path}".`);
+            this.app.workspace.getLeaf('tab').openFile(created);
         } catch (error) {
-            console.error("Error exporting to single file:", error);
+            console.error('Error exporting to single file:', error);
             new Notice('Failed to export file.');
         }
     }
+
 }
