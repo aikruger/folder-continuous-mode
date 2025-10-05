@@ -59,7 +59,6 @@ export class EnhancedContinuousView extends ItemView {
         container.empty();
         container.addClass('enhanced-continuous-container');
 
-        this.addAction('document', 'Export as single document', () => this.exportToSingleFile());
         this.createScrollElements(container);
         this.setupActiveFileObserver();
 
@@ -1405,26 +1404,35 @@ export class EnhancedContinuousView extends ItemView {
     }
 
     setupDropZone() {
-        // Show drop zone on drag over
-        this.registerDomEvent(document, 'dragover', (e: DragEvent) => {
+        let dragCounter = 0;
+
+        this.registerDomEvent(this.containerEl, 'dragenter', (e: DragEvent) => {
             if (this.isDraggedFileCompatible(e)) {
                 e.preventDefault();
+                dragCounter++;
                 this.dropZone.style.display = 'block';
-                this.dropZone.style.borderColor = 'var(--interactive-accent)';
-                this.dropZone.style.backgroundColor = 'var(--background-secondary)';
             }
         });
 
-        this.registerDomEvent(document, 'dragleave', (e: DragEvent) => {
-            if (!this.containerEl.contains(e.relatedTarget as Node)) {
+        this.registerDomEvent(this.containerEl, 'dragover', (e: DragEvent) => {
+            if (this.isDraggedFileCompatible(e)) {
+                e.preventDefault();
+            }
+        });
+
+        this.registerDomEvent(this.containerEl, 'dragleave', (e: DragEvent) => {
+            dragCounter--;
+            if (dragCounter === 0) {
                 this.dropZone.style.display = 'none';
             }
         });
 
-        this.registerDomEvent(document, 'drop', (e: DragEvent) => {
+        this.registerDomEvent(this.containerEl, 'drop', (e: DragEvent) => {
+            dragCounter = 0;
             this.dropZone.style.display = 'none';
             if (this.isDraggedFileCompatible(e)) {
                 e.preventDefault();
+                e.stopPropagation();
                 this.handleFileDrop(e);
             }
         });
@@ -1485,7 +1493,7 @@ export class EnhancedContinuousView extends ItemView {
      * Combines all files in the current view into a single markdown file.
      * This function is triggered by a view action.
      */
-    private async exportToSingleFile() {
+    public async exportToSingleFile() {
         if (!this.currentFolder || this.allFiles.length === 0) {
             new Notice('No folder or files to export.');
             return;

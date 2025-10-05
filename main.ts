@@ -28,6 +28,17 @@ export default class EnhancedContinuousModePlugin extends Plugin {
             }
         });
 
+        this.addCommand({
+            id: 'combine-files-in-continuous-view',
+            name: 'Combine files in continuous view',
+            callback: () => {
+                const leaf = this.app.workspace.getLeavesOfType(ENHANCED_CONTINUOUS_VIEW_TYPE)[0];
+                if (leaf && leaf.view instanceof EnhancedContinuousView) {
+                    leaf.view.exportToSingleFile();
+                }
+            }
+        });
+
         // Add ribbon icon
         this.addRibbonIcon('scroll', 'Enhanced Continuous Mode', () => {
             new FolderSuggestionModal(this.app, (folder: TFolder) => {
