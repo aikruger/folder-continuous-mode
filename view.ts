@@ -533,16 +533,61 @@ export class EnhancedContinuousView extends ItemView {
         `;
         dropZoneAbove.textContent = '↓ Drop here ↓';
         
-        // File header
+        // File header with content wrapper (adds missing exclude button)
         const header = container.createDiv('file-header');
-        const titleElement = header.createEl('h2', {
+        const headerContent = header.createDiv('file-header-content');
+        
+        const titleElement = headerContent.createEl('h2', {
             text: file.basename,
             cls: 'file-title'
         });
-        (titleElement as HTMLElement).style.cursor = 'pointer';
-        titleElement.addEventListener('click', () => 
-            this.app.workspace.getLeaf('tab').openFile(file)
-        );
+        
+        // Draggable functionality for title
+        (titleElement as HTMLElement).draggable = true;
+        (titleElement as HTMLElement).style.cursor = 'grab';
+        (titleElement as HTMLElement).style.userSelect = 'none';
+        
+        titleElement.addEventListener('dragstart', (e: DragEvent) => {
+            if (!e.dataTransfer) return;
+            console.debug('Drag started for file:', file.path);
+            const wikiLink = `[[${file.basename}]]`;
+            console.debug('Generated wiki link:', wikiLink);
+            e.dataTransfer.setData('text/plain', wikiLink);
+            e.dataTransfer.effectAllowed = 'copy';
+            (titleElement as HTMLElement).style.cursor = 'grabbing';
+            (titleElement as HTMLElement).style.opacity = '0.7';
+        });
+        
+        titleElement.addEventListener('dragend', (_e: DragEvent) => {
+            console.debug('Drag ended for file:', file.path);
+            (titleElement as HTMLElement).style.cursor = 'grab';
+            (titleElement as HTMLElement).style.opacity = '1';
+        });
+        
+        // Click handler
+        titleElement.addEventListener('click', (e: MouseEvent) => {
+            // Only handle click if not dragging
+            if (!e.defaultPrevented) {
+                this.app.workspace.getLeaf('tab').openFile(file);
+            }
+        });
+        
+        // Visual feedback for drag capability
+        titleElement.addEventListener('mouseenter', () => {
+            (titleElement as HTMLElement).style.cursor = 'grab';
+        });
+        titleElement.addEventListener('mouseleave', () => {
+            (titleElement as HTMLElement).style.cursor = 'pointer';
+        });
+        
+        const excludeButton = headerContent.createEl('button', {
+            text: 'X',
+            cls: 'exclude-file-button'
+        });
+        excludeButton.addEventListener('click', (e: MouseEvent) => {
+            e.stopPropagation();
+            this.excludeFile(file);
+        });
 
         // File content with double-click handler
         const fileContent = container.createDiv('file-content');

@@ -143,6 +143,13 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    padding: 8px 12px;
+    background: var(--background-primary-alt);
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.file-header-content:hover {
+    background: var(--background-modifier-hover);
 }
 
 .exclude-file-button {
@@ -258,4 +265,29 @@
 
 .file-header:hover {
     background-color: var(--background-modifier-hover);
+}
+
+/* Draggable file title enhancements */
+.file-title {
+    cursor: grab !important;
+    user-select: none;
+    transition: opacity 0.2s ease, transform 0.1s ease;
+}
+
+.file-title:hover {
+    transform: translateX(2px);
+    color: var(--interactive-accent);
+}
+
+.file-title:active {
+    cursor: grabbing !important;
+    opacity: 0.7;
+}
+
+.file-title[draggable="true"] {
+    cursor: grab !important;
+}
+
+.file-title[draggable="true"]:active {
+    cursor: grabbing !important;
 }
