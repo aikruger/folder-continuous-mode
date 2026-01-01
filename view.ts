@@ -71,7 +71,7 @@ export class EnhancedContinuousView extends ItemView {
         super(leaf);
         this.plugin = plugin;
         this.setupIntersectionObserver();
-        this.tabUpdateDebounced = debounce(this.updateOpenTabs.bind(this), 300, true);
+        this.tabUpdateDebounced = debounce(this.updateOpenTabs.bind(this), 300);
     }
 
     getViewType(): string {
@@ -155,9 +155,9 @@ export class EnhancedContinuousView extends ItemView {
     }
 
     // @ts-ignore
-    private loadNextFilesDebounced = debounce(this.loadNextFiles.bind(this), 200, true);
+    private loadNextFilesDebounced = debounce(this.loadNextFiles.bind(this), 200);
     // @ts-ignore
-    private loadPreviousFilesDebounced = debounce(this.loadPreviousFiles.bind(this), 200, true);
+    private loadPreviousFilesDebounced = debounce(this.loadPreviousFiles.bind(this), 200);
 
     public setupIntersectionObserver() {
         let options = {
@@ -1377,12 +1377,12 @@ export class EnhancedContinuousView extends ItemView {
             if (this.loadNextFilesDebounced) {
                 // @ts-ignore - Clear timeout reference
                 if (this.loadNextFilesDebounced.cancel) this.loadNextFilesDebounced.cancel();
-                this.loadNextFilesDebounced = debounce(this.loadNextFiles.bind(this), 200, true);
+                this.loadNextFilesDebounced = debounce(this.loadNextFiles.bind(this), 200);
             }
             if (this.loadPreviousFilesDebounced) {
                 // @ts-ignore - Clear timeout reference
                 if (this.loadPreviousFilesDebounced.cancel) this.loadPreviousFilesDebounced.cancel();
-                this.loadPreviousFilesDebounced = debounce(this.loadPreviousFiles.bind(this), 200, true);
+                this.loadPreviousFilesDebounced = debounce(this.loadPreviousFiles.bind(this), 200);
             }
 
             // Re-initialize observers if needed
