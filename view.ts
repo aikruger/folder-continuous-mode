@@ -1,6 +1,7 @@
-import { ItemView, WorkspaceLeaf, TFile, TFolder, MarkdownRenderer, Notice, MarkdownView, WorkspaceTabs, WorkspaceSplit } from 'obsidian';
+import { ItemView, WorkspaceLeaf, TFile, TFolder, MarkdownRenderer, Notice, MarkdownView, WorkspaceTabs, WorkspaceSplit, SuggestModal, debounce } from 'obsidian';
 import EnhancedContinuousModePlugin from './main';
 import { FolderSuggestionModal } from './folderModal';
+import { CanvasSuggestionModal } from './canvasModal';
 
 export const ENHANCED_CONTINUOUS_VIEW_TYPE = 'enhanced-continuous-view';
 
@@ -18,6 +19,24 @@ interface ActiveEditor {
     scrollCleanup?: () => void;
     clickCleanup?: () => void;
     selectiveCleanup?: () => void;
+}
+
+interface TabData {
+    file: TFile;
+    leaf: WorkspaceLeaf;
+    title: string;
+    path: string;
+}
+
+interface CanvasNode {
+    id: string;
+    file: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    color: string;
+    type?: string;
 }
 
 export class EnhancedContinuousView extends ItemView {
@@ -39,10 +58,20 @@ export class EnhancedContinuousView extends ItemView {
     private activeEditor: ActiveEditor | null = null;
     private clickOutsideHandler: ((event: MouseEvent | KeyboardEvent) => void) | null = null;
 
+    // Tab tracking properties
+    private openTabs: TabData[] = [];
+    private tabContainer: HTMLElement | null = null;
+    private lastOpenTabsUpdate = 0;
+    private tabUpdateDebounced: any; // Debounced function
+
+    // Map to store canvas metadata
+    private canvasFileMetadata = new Map<string, { x: number, y: number }>();
+
     constructor(leaf: WorkspaceLeaf, plugin: EnhancedContinuousModePlugin) {
         super(leaf);
         this.plugin = plugin;
         this.setupIntersectionObserver();
+        this.tabUpdateDebounced = debounce(this.updateOpenTabs.bind(this), 300);
     }
 
     getViewType(): string {
@@ -59,12 +88,19 @@ export class EnhancedContinuousView extends ItemView {
         container.addClass('enhanced-continuous-container');
 
         this.addAction('document', 'Export as single document', () => this.exportToSingleFile());
+
+        // Create tab display container BEFORE folder selector
+        this.createTabContainer(container);
+
         this.createScrollElements(container);
         this.setupActiveFileObserver();
 
         if (!this.currentFolder) {
             this.showFolderSelector(container);
         }
+
+        // Setup workspace event listeners for tab changes
+        this.setupWorkspaceTabListeners();
     }
 
     async onClose() {
@@ -118,17 +154,10 @@ export class EnhancedContinuousView extends ItemView {
         }
     }
 
-    private debounce(func: Function, wait: number) {
-        // Debounce function to limit the rate of function execution
-        let timeout: NodeJS.Timeout;
-        return (...args: any[]) => {
-            clearTimeout(timeout);
-            timeout = setTimeout(() => func.apply(this, args), wait);
-        };
-    }
-
-    private loadNextFilesDebounced = this.debounce(this.loadNextFiles.bind(this), 200);
-    private loadPreviousFilesDebounced = this.debounce(this.loadPreviousFiles.bind(this), 200);
+    // @ts-ignore
+    private loadNextFilesDebounced = debounce(this.loadNextFiles.bind(this), 200);
+    // @ts-ignore
+    private loadPreviousFilesDebounced = debounce(this.loadPreviousFiles.bind(this), 200);
 
     public setupIntersectionObserver() {
         let options = {
@@ -309,6 +338,10 @@ export class EnhancedContinuousView extends ItemView {
         await this.cleanupResources();
         const container = this.containerEl.children[1] as HTMLElement;
         container.empty();
+
+        // Recreate tab container
+        this.createTabContainer(container);
+
         this.createScrollElements(container);
 
         this.currentFolder = folder;
@@ -506,9 +539,26 @@ export class EnhancedContinuousView extends ItemView {
         return element instanceof HTMLElement;
     }
 
-    private async createFileElement(file: TFile): Promise<HTMLElement> {
+    private async createFileElement(file: TFile, canvasMetadata?: { x: number, y: number }): Promise<HTMLElement> {
         const fileContainer = createDiv('file-container');
         fileContainer.dataset.fileName = file.path;
+
+        if (canvasMetadata) {
+            fileContainer.addClass('from-canvas');
+            const positionBadge = fileContainer.createDiv('canvas-position-badge');
+            positionBadge.setAttr('style', `
+                position: absolute;
+                top: 4px;
+                right: 4px;
+                font-size: 10px;
+                padding: 2px 6px;
+                background: var(--interactive-accent);
+                color: var(--text-on-accent);
+                border-radius: 4px;
+                z-index: 10;
+            `);
+            positionBadge.textContent = `(${Math.round(canvasMetadata.x)}, ${Math.round(canvasMetadata.y)})`;
+        }
 
         const headerEl = fileContainer.createDiv('file-header').createEl('h2', {
             text: file.basename,
@@ -1049,7 +1099,8 @@ export class EnhancedContinuousView extends ItemView {
         
         // Create all elements first (without observing)
         for (const file of files) {
-            const element = await this.createFileElement(file);
+            const meta = this.canvasFileMetadata.get(file.path);
+            const element = await this.createFileElement(file, meta);
             fragment.appendChild(element);
             console.debug(`Created element for file: ${file.path}`);
         }
@@ -1076,7 +1127,8 @@ export class EnhancedContinuousView extends ItemView {
         
         // Create elements in reverse order for prepending
         for (const file of files.reverse()) {
-            const element = await this.createFileElement(file);
+             const meta = this.canvasFileMetadata.get(file.path);
+            const element = await this.createFileElement(file, meta);
             fragment.prepend(element);
             console.debug(`Created element for prepended file: ${file.path}`);
         }
@@ -1203,10 +1255,29 @@ export class EnhancedContinuousView extends ItemView {
     }
 
     private showFolderSelector(container: HTMLElement) {
-        const selectorContainer = container.createDiv('folder-selector-container');
-        selectorContainer.createEl('h3', { text: 'Select a folder to scroll through' });
-        const button = selectorContainer.createEl('button', { text: 'Choose Folder', cls: 'mod-cta' });
-        button.onclick = () => new FolderSuggestionModal(this.app, (folder: TFolder) => this.plugin.activateView(folder)).open();
+        let selectorContainer = container.createDiv('folder-selector-container');
+        selectorContainer.createEl('h3', { text: 'Choose a view mode:' });
+
+        let folderDiv = selectorContainer.createDiv();
+        folderDiv.createEl('p', { text: 'Load a folder in continuous view:' });
+        let folderBtn = folderDiv.createEl('button', {
+            text: 'Choose Folder',
+            cls: 'mod-cta'
+        });
+        folderBtn.onclick = () => {
+            new FolderSuggestionModal(this.app, (folder: TFolder) =>
+            this.plugin.activateView(folder)
+            ).open();
+        };
+
+        let canvasDiv = selectorContainer.createDiv();
+        canvasDiv.style.marginTop = '16px';
+        canvasDiv.createEl('p', { text: 'Or load a canvas file:' });
+        let canvasBtn = canvasDiv.createEl('button', {
+            text: 'Choose Canvas',
+            cls: 'mod-cta'
+        });
+        canvasBtn.onclick = () => this.showCanvasSelector();
     }
 
     private showEmptyFolderMessage() {
@@ -1271,8 +1342,9 @@ export class EnhancedContinuousView extends ItemView {
             this.allFiles = [];
             this.currentFolder = null;
             this.currentIndex = 0;
+            this.canvasFileMetadata.clear(); // Clear canvas metadata
 
-            // Clean up DOM elements
+            // Clean up container
             if (this.contentContainer) {
                 // Remove all event listeners by cloning
                 const clone = this.contentContainer.cloneNode(false) as HTMLElement;
@@ -1304,13 +1376,13 @@ export class EnhancedContinuousView extends ItemView {
             // Clean up debounced functions
             if (this.loadNextFilesDebounced) {
                 // @ts-ignore - Clear timeout reference
-                clearTimeout(this.loadNextFilesDebounced.timeout);
-                this.loadNextFilesDebounced = this.debounce(this.loadNextFiles.bind(this), 200);
+                if (this.loadNextFilesDebounced.cancel) this.loadNextFilesDebounced.cancel();
+                this.loadNextFilesDebounced = debounce(this.loadNextFiles.bind(this), 200);
             }
             if (this.loadPreviousFilesDebounced) {
                 // @ts-ignore - Clear timeout reference
-                clearTimeout(this.loadPreviousFilesDebounced.timeout);
-                this.loadPreviousFilesDebounced = this.debounce(this.loadPreviousFiles.bind(this), 200);
+                if (this.loadPreviousFilesDebounced.cancel) this.loadPreviousFilesDebounced.cancel();
+                this.loadPreviousFilesDebounced = debounce(this.loadPreviousFiles.bind(this), 200);
             }
 
             // Re-initialize observers if needed
@@ -1320,6 +1392,10 @@ export class EnhancedContinuousView extends ItemView {
             if (!this.activeFileObserver) {
                 this.setupActiveFileObserver();
             }
+
+            // Clean up tabs?
+            // Usually we keep tabs unless closed?
+            // If we are just loading a folder/canvas, we might want to keep the tabs.
 
         } catch (error) {
             console.error('Resource cleanup error:', error);
@@ -1345,7 +1421,13 @@ export class EnhancedContinuousView extends ItemView {
 
     private updateDisplayText() {
         const newDisplayText = this.currentFolder ? `Continuous: ${this.currentFolder.name}` : 'Enhanced Continuous View';
-        if (this.getDisplayText() !== newDisplayText) (this.leaf as any).rebuildView();
+        // Force view update if available
+        if (this.getDisplayText() !== newDisplayText) {
+            // @ts-ignore
+            if (this.leaf.rebuildView) this.leaf.rebuildView();
+            // Also try standard way
+            this.app.workspace.requestSaveLayout();
+        }
     }
 
     private async exportToSingleFile() {
@@ -1371,6 +1453,293 @@ export class EnhancedContinuousView extends ItemView {
         } catch (error) {
             console.error("Error exporting to single file:", error);
             new Notice('Failed to export file.');
+        }
+    }
+
+    // --- New Features Methods ---
+
+    // 1. Render Current Open Tabs
+
+    getOpenTabsInOrder(): TabData[] {
+        // Get all leaf views from the workspace
+        const tabs: TabData[] = [];
+
+        // Traverse the workspace split containers to maintain left-to-right order
+        const traverseContainer = (container: any) => {
+            if (!container || !container.children) return;
+
+            // If it's a leaf container, process the leaf
+            for (let child of container.children) {
+                if (child instanceof WorkspaceSplit || child instanceof WorkspaceTabs) {
+                    traverseContainer(child);
+                } else if (child.view && child.view instanceof MarkdownView) {
+                    const file = child.view.file;
+                    if (file && file.extension === 'md') {
+                        tabs.push({
+                            file: file,
+                            leaf: child,
+                            title: file.basename,
+                            path: file.path
+                        });
+                    }
+                }
+            }
+        };
+
+        traverseContainer(this.app.workspace.rootSplit);
+
+        return tabs;
+    }
+
+    createTabContainer(parentEl: HTMLElement) {
+        this.tabContainer = parentEl.createDiv('open-tabs-container');
+        this.tabContainer.setAttr('style', `
+            display: flex;
+            flex-direction: row;
+            gap: 12px;
+            overflow-x: auto;
+            overflow-y: hidden;
+            padding: 12px;
+            background: var(--background-secondary);
+            border-bottom: 1px solid var(--background-modifier-border);
+            min-height: 60px;
+            scroll-behavior: smooth;
+            flex-wrap: nowrap;
+        `);
+
+        this.updateOpenTabs();
+    }
+
+    async updateOpenTabs() {
+        if (!this.tabContainer) return;
+
+        const tabs = this.getOpenTabsInOrder();
+        this.openTabs = tabs;
+
+        // Clear existing tab cards
+        this.tabContainer.empty();
+
+        if (tabs.length === 0) {
+            this.tabContainer.createEl('p', {
+                text: 'No open tabs',
+                cls: 'no-tabs-message'
+            });
+            return;
+        }
+
+        // Create individual tab cards
+        for (const tab of tabs) {
+            await this.createTabCard(this.tabContainer, tab);
+        }
+    }
+
+    async createTabCard(container: HTMLElement, tabData: TabData) {
+        const card = container.createDiv('tab-card');
+        card.setAttr('style', `
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-width: 100px;
+            max-width: 120px;
+            height: 48px;
+            padding: 8px;
+            background: var(--background-primary);
+            border: 1px solid var(--background-modifier-border);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+            text-align: center;
+            overflow: hidden;
+        `);
+
+        const title = card.createEl('span', {
+            text: tabData.title,
+            cls: 'tab-title'
+        });
+        title.setAttr('style', `
+            font-size: 12px;
+            font-weight: 500;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            overflow: hidden;
+            width: 100%;
+            color: var(--text-normal);
+        `);
+
+        // Add file path as subtitle
+        const path = card.createEl('span', {
+            text: tabData.path,
+            cls: 'tab-path'
+        });
+        path.setAttr('style', `
+            font-size: 10px;
+            color: var(--text-muted);
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            overflow: hidden;
+            width: 100%;
+        `);
+
+        // Click handler to switch to tab
+        card.addEventListener('click', () => {
+            if (tabData.leaf && tabData.file) {
+                this.app.workspace.revealLeaf(tabData.leaf);
+                // Using revealLeaf is usually enough. openFile might reload it.
+                // The snippet says:
+                // this.app.workspace.revealLeaf(tabData.leaf);
+                // this.app.workspace.activeLeaf?.openFile(tabData.file);
+                // I will trust revealLeaf.
+            }
+        });
+
+        // Hover effects
+        card.addEventListener('mouseenter', () => {
+            card.style.background = 'var(--background-modifier-hover)';
+            card.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.15)';
+        });
+
+        card.addEventListener('mouseleave', () => {
+            card.style.background = 'var(--background-primary)';
+            card.style.boxShadow = 'none';
+        });
+    }
+
+    setupWorkspaceTabListeners() {
+        // Update when leaf changes
+        this.registerEvent(
+            this.app.workspace.on('active-leaf-change', () => {
+                this.tabUpdateDebounced();
+            })
+        );
+
+        // Update when leaves are created/destroyed
+        this.registerEvent(
+            this.app.workspace.on('layout-change', () => {
+                this.tabUpdateDebounced();
+            })
+        );
+    }
+
+    // 2. Canvas to Continuous View
+
+    async parseCanvasFile(canvasFile: TFile): Promise<CanvasNode[]> {
+        if (!canvasFile || canvasFile.extension !== 'canvas') {
+            console.error('Invalid canvas file');
+            return [];
+        }
+
+        try {
+            const content = await this.app.vault.read(canvasFile);
+            const canvasData = JSON.parse(content);
+
+            if (!canvasData.nodes || !Array.isArray(canvasData.nodes)) {
+                console.warn('Canvas file has no nodes');
+                return [];
+            }
+
+            // Filter for file nodes and sort by position (left to right, top to bottom)
+            const fileNodes = canvasData.nodes
+                .filter((node: any) => node.type === 'file' && node.file)
+                .map((node: any) => ({
+                    id: node.id,
+                    file: node.file,
+                    x: node.x || 0,
+                    y: node.y || 0,
+                    width: node.width || 250,
+                    height: node.height || 250,
+                    color: node.color || ''
+                }))
+                .sort((a: any, b: any) => {
+                    // Sort by y first (top to bottom), then by x (left to right)
+                    if (Math.abs(a.y - b.y) > 50) { // 50px threshold for same row
+                        return a.y - b.y;
+                    }
+                    return a.x - b.x;
+                });
+
+            console.debug('Parsed canvas nodes:', fileNodes);
+            return fileNodes;
+        } catch (error) {
+            console.error('Error parsing canvas file:', error);
+            return [];
+        }
+    }
+
+    async loadFilesFromCanvas(canvasFile: TFile) {
+        const nodes = await this.parseCanvasFile(canvasFile);
+        const files: { file: TFile, canvasNodeId: string, canvasPosition: { x: number, y: number } }[] = [];
+
+        for (const node of nodes) {
+            try {
+                const tFile = this.app.vault.getAbstractFileByPath(node.file);
+                if (tFile instanceof TFile && tFile.extension === 'md') {
+                    files.push({
+                        file: tFile,
+                        canvasNodeId: node.id,
+                        canvasPosition: { x: node.x, y: node.y }
+                    });
+                }
+            } catch (error) {
+                console.warn(`Could not load file: ${node.file}`, error);
+            }
+        }
+
+        return files;
+    }
+
+    showCanvasSelector() {
+        new CanvasSuggestionModal(this.app, async (selectedCanvas) => {
+            if (selectedCanvas) {
+                await this.loadCanvasToView(selectedCanvas);
+            }
+        }).open();
+    }
+
+    async loadCanvasToView(canvasFile: TFile) {
+        try {
+            await this.cleanupResources();
+            const container = this.containerEl.children[1] as HTMLElement;
+            container.empty();
+
+            this.createTabContainer(container);
+            this.createScrollElements(container);
+
+            // Load files from canvas
+            const files = await this.loadFilesFromCanvas(canvasFile);
+
+            if (files.length === 0) {
+                this.contentContainer.createEl('p', {
+                    text: 'No valid markdown files found in this canvas'
+                });
+                return;
+            }
+
+            // Store as current view data
+            this.allFiles = files.map(f => f.file);
+
+            // Populate metadata map
+            this.canvasFileMetadata.clear();
+            files.forEach(f => {
+                this.canvasFileMetadata.set(f.file.path, f.canvasPosition);
+            });
+
+            this.loadedFiles = this.allFiles.slice(0, this.plugin.settings.initialFileCount);
+
+            // Render files
+            await this.renderFiles();
+            this.updateScrollElements();
+
+            // Update display text
+            this.currentFolder = null; // We are in canvas mode
+            // We might want a property to track current canvas
+            this.updateDisplayText(); // Update title
+
+            new Notice(`Loaded ${files.length} files from canvas: ${canvasFile.basename}`);
+
+        } catch (error) {
+            console.error('Error loading canvas:', error);
+            new Notice('Failed to load canvas');
         }
     }
 }

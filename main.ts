@@ -19,6 +19,14 @@ export default class EnhancedContinuousModePlugin extends Plugin {
 
         // Add commands
         this.addCommand({
+            id: 'open-continuous-view-menu',
+            name: 'Open continuous view menu',
+            callback: () => {
+                this.activateView();
+            }
+        });
+
+        this.addCommand({
             id: 'open-folder-continuous-view',
             name: 'Open folder in continuous view',
             callback: () => {
@@ -30,9 +38,7 @@ export default class EnhancedContinuousModePlugin extends Plugin {
 
         // Add ribbon icon
         this.addRibbonIcon('scroll', 'Enhanced Continuous Mode', () => {
-            new FolderSuggestionModal(this.app, (folder: TFolder) => {
-                this.activateView(folder);
-            }).open();
+            this.activateView();
         });
 
         this.registerEvent(
@@ -55,7 +61,7 @@ export default class EnhancedContinuousModePlugin extends Plugin {
         this.app.workspace.detachLeavesOfType(ENHANCED_CONTINUOUS_VIEW_TYPE);
     }
 
-    async activateView(folder: TFolder) {
+    async activateView(folder?: TFolder) {
         this.app.workspace.detachLeavesOfType(ENHANCED_CONTINUOUS_VIEW_TYPE);
 
         const leaf = this.app.workspace.getLeaf('split');
@@ -67,7 +73,7 @@ export default class EnhancedContinuousModePlugin extends Plugin {
 
         this.app.workspace.revealLeaf(leaf);
 
-        if (leaf.view instanceof EnhancedContinuousView) {
+        if (folder && leaf.view instanceof EnhancedContinuousView) {
             leaf.view.loadFolder(folder);
         }
     }
