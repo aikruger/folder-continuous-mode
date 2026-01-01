@@ -6,13 +6,23 @@ export interface EnhancedContinuousModeSettings {
     maxFileCount: number;
     loadUnloadCount: number;
     scrollThreshold: number;
+    continuousViewMode: string;
+    canvasFileOrder: string;
 }
+
+export const CONTINUOUS_MODES = {
+    FOLDER: 'folder',
+    TABS: 'tabs',
+    CANVAS: 'canvas'
+};
 
 export const DEFAULT_SETTINGS: EnhancedContinuousModeSettings = {
     initialFileCount: 5,
     maxFileCount: 7,
     loadUnloadCount: 2,
-    scrollThreshold: 0.1
+    scrollThreshold: 0.1,
+    continuousViewMode: CONTINUOUS_MODES.FOLDER,
+    canvasFileOrder: 'left-to-right'
 };
 
 export class EnhancedContinuousModeSettingTab extends PluginSettingTab {
@@ -69,7 +79,26 @@ export class EnhancedContinuousModeSettingTab extends PluginSettingTab {
                 .setValue(this.plugin.settings.scrollThreshold.toString())
                 .onChange(async (value) => {
                     this.plugin.settings.scrollThreshold = Number(value);
-await this.plugin.saveSettings();
+                    await this.plugin.saveSettings();
                 }));
+
+        // NEW: Mode settings
+        containerEl.createEl('h3', { text: 'Canvas Mode Settings' });
+
+        new Setting(containerEl)
+            .setName('Canvas File Order')
+            .setDesc('How to order files from canvas nodes.')
+            .addDropdown(dropdown =>
+                dropdown
+                    .addOptions({
+                        'left-to-right': 'Left to Right, Top to Bottom',
+                        'top-to-bottom': 'Top to Bottom, Left to Right'
+                    })
+                    .setValue(this.plugin.settings.canvasFileOrder || 'left-to-right')
+                    .onChange(async (value) => {
+                        this.plugin.settings.canvasFileOrder = value;
+                        await this.plugin.saveSettings();
+                    })
+            );
     }
 }
