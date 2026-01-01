@@ -1,6 +1,7 @@
 import { ItemView, WorkspaceLeaf, TFile, TFolder, MarkdownRenderer, Notice, MarkdownView, WorkspaceTabs, WorkspaceSplit } from 'obsidian';
 import EnhancedContinuousModePlugin from './main';
 import { FolderSuggestionModal } from './folderModal';
+import { CONTINUOUS_MODES } from './settings';
 
 export const ENHANCED_CONTINUOUS_VIEW_TYPE = 'enhanced-continuous-view';
 
@@ -37,11 +38,23 @@ export class EnhancedContinuousView extends ItemView {
     private lastHighlighted: HTMLElement | null = null;
 
     private activeEditor: ActiveEditor | null = null;
-    private clickOutsideHandler: ((event: MouseEvent | KeyboardEvent) => void) | null = null;
+
+    // NEW: Add mode properties
+    public currentMode: string;
+    private sourceCanvasFile: TFile | null;
+    private canvasData: any; // Using any for canvas data structure
+    private openTabsLeaf: WorkspaceLeaf | null;
 
     constructor(leaf: WorkspaceLeaf, plugin: EnhancedContinuousModePlugin) {
         super(leaf);
         this.plugin = plugin;
+
+        // NEW: Add mode properties initialization
+        this.currentMode = CONTINUOUS_MODES.FOLDER;
+        this.sourceCanvasFile = null;
+        this.canvasData = null;
+        this.openTabsLeaf = null;
+
         this.setupIntersectionObserver();
     }
 
@@ -50,7 +63,17 @@ export class EnhancedContinuousView extends ItemView {
     }
 
     getDisplayText(): string {
-        return this.currentFolder ? `Continuous: ${this.currentFolder.name}` : 'Enhanced Continuous View';
+        if (this.currentMode === CONTINUOUS_MODES.TABS) {
+            return 'Continuous: Open Tabs';
+        } else if (this.currentMode === CONTINUOUS_MODES.CANVAS) {
+            return this.sourceCanvasFile
+                ? `Continuous: Canvas - ${this.sourceCanvasFile.basename}`
+                : 'Continuous: Canvas';
+        } else {
+            return this.currentFolder
+                ? `Continuous: ${this.currentFolder.name}`
+                : 'Enhanced Continuous View';
+        }
     }
 
     async onOpen() {
@@ -59,11 +82,22 @@ export class EnhancedContinuousView extends ItemView {
         container.addClass('enhanced-continuous-container');
 
         this.addAction('document', 'Export as single document', () => this.exportToSingleFile());
-        this.createScrollElements(container);
-        this.setupActiveFileObserver();
 
-        if (!this.currentFolder) {
-            this.showFolderSelector(container);
+        // Create mode selector header if needed
+        if (!this.currentFolder && this.currentMode === CONTINUOUS_MODES.FOLDER) {
+            this.showModeSelectorUI(container);
+        } else {
+            this.createScrollElements(container);
+            this.setupActiveFileObserver();
+
+            // Load based on current mode
+            if (this.currentMode === CONTINUOUS_MODES.FOLDER && this.currentFolder) {
+                await this.loadFolder(this.currentFolder);
+            } else if (this.currentMode === CONTINUOUS_MODES.TABS) {
+                await this.loadOpenTabsContinuous();
+            } else if (this.currentMode === CONTINUOUS_MODES.CANVAS && this.sourceCanvasFile) {
+                await this.loadCanvasFiles(this.sourceCanvasFile);
+            }
         }
     }
 
@@ -93,6 +127,11 @@ export class EnhancedContinuousView extends ItemView {
                 this.lastHighlighted = null;
             }
 
+            // Clear mode-specific data
+            this.sourceCanvasFile = null;
+            this.canvasData = null;
+            this.currentMode = CONTINUOUS_MODES.FOLDER;
+
             // Reset state
             this.loadedFiles = [];
             this.allFiles = [];
@@ -104,13 +143,6 @@ export class EnhancedContinuousView extends ItemView {
                 this.contentContainer.empty();
                 // Create empty div to satisfy type
                 this.contentContainer = createDiv();
-            }
-
-            // Remove any remaining event listeners
-            if (this.clickOutsideHandler) {
-                document.removeEventListener('click', this.clickOutsideHandler, true);
-                document.removeEventListener('keydown', this.clickOutsideHandler, true);
-                this.clickOutsideHandler = null;
             }
 
         } catch (error) {
@@ -312,6 +344,7 @@ export class EnhancedContinuousView extends ItemView {
         this.createScrollElements(container);
 
         this.currentFolder = folder;
+        this.currentMode = CONTINUOUS_MODES.FOLDER;
         this.updateDisplayText();
 
         this.allFiles = this.getSortedFilesInFolder(folder);
@@ -1313,6 +1346,11 @@ export class EnhancedContinuousView extends ItemView {
                 this.loadPreviousFilesDebounced = this.debounce(this.loadPreviousFiles.bind(this), 200);
             }
 
+            // Clear mode-specific data
+            this.sourceCanvasFile = null;
+            this.canvasData = null;
+            // Don't reset currentMode here, let the caller set it
+
             // Re-initialize observers if needed
             if (!this.intersectionObserver) {
                 this.setupIntersectionObserver();
@@ -1344,8 +1382,218 @@ export class EnhancedContinuousView extends ItemView {
     }
 
     private updateDisplayText() {
-        const newDisplayText = this.currentFolder ? `Continuous: ${this.currentFolder.name}` : 'Enhanced Continuous View';
-        if (this.getDisplayText() !== newDisplayText) (this.leaf as any).rebuildView();
+        // Trigger update of the view title
+        this.app.workspace.requestSaveLayout();
+    }
+
+    async loadCanvasFiles(canvasFile: TFile) {
+        console.debug('Loading canvas file:', canvasFile.path);
+
+        await this.cleanupResources();
+        let container = this.containerEl.children[1] as HTMLElement;
+        if (container) container.empty();
+        this.createScrollElements(container);
+
+        this.currentMode = CONTINUOUS_MODES.CANVAS;
+        this.sourceCanvasFile = canvasFile;
+        this.updateDisplayText();
+
+        try {
+            // Read canvas data
+            const canvasContent = await this.app.vault.read(canvasFile);
+            this.canvasData = JSON.parse(canvasContent);
+
+            // Extract file nodes and sort by position
+            const fileNodes = this.extractAndSortCanvasNodes(this.canvasData.nodes || []);
+
+            if (fileNodes.length === 0) {
+                this.showEmptyFolderMessage();
+                return;
+            }
+
+            // Build file array from canvas nodes
+            this.allFiles = fileNodes;
+            await this.loadInitialFiles();
+
+        } catch (error) {
+            console.error('Error loading canvas file:', error);
+            new Notice('Failed to parse canvas file');
+        }
+    }
+
+    extractAndSortCanvasNodes(nodes: any[]) {
+        console.debug('Extracting canvas nodes, total:', nodes.length);
+
+        // Filter to file-type nodes only
+        const fileNodes = nodes.filter(node => node.type === 'file' && node.file);
+
+        // Sort by position: left-to-right, top-to-bottom
+        // Assuming canvas node structure has x, y coordinates
+        const sortedNodes = fileNodes.sort((a, b) => {
+            const aY = a.y || 0;
+            const bY = b.y || 0;
+            const aX = a.x || 0;
+            const bX = b.x || 0;
+
+            const order = this.plugin.settings.canvasFileOrder;
+
+            if (order === 'top-to-bottom') {
+                // Primary sort: by X position (left to right)
+                if (Math.abs(aX - bX) > 50) { // 50px threshold for same column
+                    return aX - bX;
+                }
+                 // Secondary sort: by Y position (top to bottom)
+                return aY - bY;
+            } else {
+                 // Default: left-to-right
+                // Primary sort: by Y position (top to bottom)
+                if (Math.abs(aY - bY) > 50) { // 50px threshold for same row
+                    return aY - bY;
+                }
+                // Secondary sort: by X position (left to right)
+                return aX - bX;
+            }
+        });
+
+        // Convert canvas file paths to TFile objects
+        const tFiles = [];
+        for (const node of sortedNodes) {
+            try {
+                const tFile = this.app.vault.getAbstractFileByPath(node.file);
+                if (tFile instanceof TFile && tFile.extension === 'md') {
+                    tFiles.push(tFile);
+                    console.debug(`Added canvas file: ${tFile.path} at position (${node.x}, ${node.y})`);
+                }
+            } catch (error) {
+                console.warn(`Could not load canvas file: ${node.file}`, error);
+            }
+        }
+
+        return tFiles;
+    }
+
+    async loadOpenTabsContinuous() {
+        console.debug('Loading open tabs continuous view');
+
+        await this.cleanupResources();
+        let container = this.containerEl.children[1] as HTMLElement;
+        if (container) container.empty();
+        this.createScrollElements(container);
+
+        this.currentMode = CONTINUOUS_MODES.TABS;
+        this.updateDisplayText();
+
+        try {
+            const fileLeaves: WorkspaceLeaf[] = [];
+
+            this.app.workspace.iterateAllLeaves((leaf) => {
+                if (leaf.view instanceof MarkdownView && leaf.view.file && leaf.view.file.extension === 'md') {
+                    fileLeaves.push(leaf);
+                }
+            });
+
+            if (fileLeaves.length === 0) {
+                this.contentContainer.createEl('p', {
+                    text: 'No markdown files are currently open in tabs.'
+                });
+                return;
+            }
+
+            // Extract files
+            this.allFiles = fileLeaves
+                .map((leaf: WorkspaceLeaf) => (leaf.view instanceof MarkdownView ? leaf.view.file : null))
+                .filter((file: TFile | null): file is TFile => file !== null);
+
+            console.debug('Loaded tabs:', this.allFiles.map(f => f.path));
+
+            await this.loadInitialFiles();
+
+        } catch (error) {
+            console.error('Error loading open tabs:', error);
+            new Notice('Failed to load open tabs');
+        }
+    }
+
+    showModeSelectorUI(container: HTMLElement) {
+        const selectorDiv = container.createDiv('mode-selector-container');
+        selectorDiv.createEl('h2', { text: 'Select Continuous View Mode' });
+
+        const folderBtn = selectorDiv.createEl('button', {
+            text: '📁 Load from Folder',
+            cls: 'mod-cta'
+        });
+        folderBtn.onclick = () => {
+            new FolderSuggestionModal(this.app, (folder) => {
+                this.currentMode = CONTINUOUS_MODES.FOLDER;
+                this.plugin.activateView(folder);
+            }).open();
+        };
+
+        const tabsBtn = selectorDiv.createEl('button', {
+            text: '📑 Load Open Tabs',
+            cls: 'mod-cta'
+        });
+        tabsBtn.onclick = async () => {
+            this.currentMode = CONTINUOUS_MODES.TABS;
+            container.empty();
+            this.createScrollElements(container);
+            this.setupActiveFileObserver();
+            await this.loadOpenTabsContinuous();
+        };
+
+        const canvasBtn = selectorDiv.createEl('button', {
+            text: '🎨 Load from Canvas',
+            cls: 'mod-cta'
+        });
+        canvasBtn.onclick = () => {
+            this.showCanvasSelector(container);
+        };
+
+        // Add some spacing
+        selectorDiv.style.padding = '20px';
+        selectorDiv.style.display = 'flex';
+        selectorDiv.style.flexDirection = 'column';
+        selectorDiv.style.gap = '10px';
+
+        folderBtn.style.marginTop = '10px';
+        tabsBtn.style.marginTop = '10px';
+        canvasBtn.style.marginTop = '10px';
+    }
+
+    showCanvasSelector(container: HTMLElement) {
+        // Get all canvas files
+        const canvasFiles = this.app.vault
+            .getFiles() // Changed from getMarkdownFiles() to getFiles() to find .canvas files
+            .filter(file => file.extension === 'canvas');
+
+        if (canvasFiles.length === 0) {
+            new Notice('No canvas files found in your vault');
+            return;
+        }
+
+        container.empty();
+        const selectorDiv = container.createDiv('canvas-selector-container');
+        selectorDiv.createEl('h3', { text: 'Select a Canvas File' });
+
+        const list = selectorDiv.createEl('ul', { cls: 'canvas-file-list' });
+
+        for (const canvasFile of canvasFiles) {
+            const item = list.createEl('li');
+            const link = item.createEl('a', {
+                text: canvasFile.basename,
+                href: '#'
+            });
+
+            link.style.cursor = 'pointer';
+            link.onclick = async (e) => {
+                e.preventDefault();
+                this.currentMode = CONTINUOUS_MODES.CANVAS;
+                container.empty();
+                this.createScrollElements(container);
+                this.setupActiveFileObserver();
+                await this.loadCanvasFiles(canvasFile);
+            };
+        }
     }
 
     private async exportToSingleFile() {

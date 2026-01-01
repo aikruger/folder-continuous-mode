@@ -163,3 +163,97 @@
     color: var(--text-on-accent) !important;
     font-weight: bold !important;
 }
+
+/* Mode selector UI */
+.mode-selector-container {
+  padding: 20px;
+  text-align: center;
+  background: var(--background-primary);
+}
+
+.mode-selector-container h2 {
+  margin-bottom: 20px;
+  color: var(--text-normal);
+}
+
+.mode-selector-container button {
+  display: block;
+  width: 100%;
+  max-width: 300px;
+  margin: 10px auto;
+  padding: 12px 16px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.mode-selector-container button:hover {
+  background: var(--interactive-accent-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(var(--interactive-accent-rgb), 0.2);
+}
+
+.canvas-selector-container {
+  padding: 20px;
+  background: var(--background-primary);
+}
+
+.canvas-selector-container h3 {
+  color: var(--text-normal);
+  margin-bottom: 15px;
+}
+
+.canvas-file-list {
+  list-style: none;
+  padding: 0;
+  max-width: 300px;
+  margin: 0 auto;
+}
+
+.canvas-file-list li {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.canvas-file-list li a {
+  color: var(--interactive-accent);
+  text-decoration: none;
+  padding: 8px 12px;
+  display: block;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.canvas-file-list li a:hover {
+  background: var(--background-secondary);
+  color: var(--interactive-accent-hover);
+  transform: translateX(4px);
+}
+
+/* Mode indicator badge */
+.mode-indicator {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  margin-left: 8px;
+  text-transform: uppercase;
+}
+
+.mode-indicator.tabs {
+  background: var(--background-secondary);
+  color: var(--interactive-accent);
+}
+
+.mode-indicator.canvas {
+  background: var(--background-secondary);
+  color: var(--interactive-accent);
+}
