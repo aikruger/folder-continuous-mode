@@ -163,3 +163,114 @@
     color: var(--text-on-accent) !important;
     font-weight: bold !important;
 }
+
+/* New features styles */
+
+.open-tabs-container {
+    display: flex;
+    flex-direction: row;
+    gap: 12px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 12px;
+    background: var(--background-secondary);
+    border-bottom: 1px solid var(--background-modifier-border);
+    min-height: 60px;
+    scroll-behavior: smooth;
+    flex-wrap: nowrap;
+}
+
+.tab-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 100px;
+    max-width: 120px;
+    height: 48px;
+    padding: 8px;
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+    text-align: center;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.tab-card:hover {
+    background: var(--background-modifier-hover);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    transform: translateY(-2px);
+}
+
+.tab-card:active {
+    transform: translateY(0);
+}
+
+.tab-title {
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    width: 100%;
+    color: var(--text-normal);
+}
+
+.tab-path {
+    font-size: 10px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    width: 100%;
+}
+
+.no-tabs-message {
+    color: var(--text-muted);
+    font-size: 12px;
+    padding: 16px;
+    text-align: center;
+}
+
+.folder-selector-container {
+    padding: 20px;
+    max-width: 400px;
+}
+
+.folder-selector-container h3 {
+    margin: 0 0 16px 0;
+}
+
+.folder-selector-container p {
+    margin: 8px 0;
+    font-size: 14px;
+    color: var(--text-muted);
+}
+
+.folder-selector-container button {
+    width: 100%;
+    padding: 10px;
+    margin: 8px 0;
+}
+
+.canvas-position-badge {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    font-size: 10px;
+    padding: 2px 6px;
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border-radius: 4px;
+    z-index: 10;
+    font-weight: 500;
+}
+
+/* Enhanced styling for canvas-loaded files */
+.file-container.from-canvas {
+    border-left: 3px solid var(--interactive-accent);
+    padding-left: 12px;
+}
