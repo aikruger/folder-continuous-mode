@@ -94,6 +94,41 @@ export default class EnhancedContinuousModePlugin extends Plugin {
             })
         );
 
+        // Register tab group menu (window dropdown menu with "Stack tabs", "Bookmark tabs", etc.)
+        this.registerEvent(
+            // @ts-ignore
+            this.app.workspace.on('tab-group-menu', (menu, tabGroup) => {
+                // Check if this tab group has any markdown files
+                let hasMarkdownFiles = false;
+
+                // Iterate through all leaves in this tab group
+                // @ts-ignore
+                for (let leaf of tabGroup.children) {
+                    // @ts-ignore
+                    if (leaf.view && leaf.view.file && leaf.view.file.extension === 'md') {
+                        hasMarkdownFiles = true;
+                        break;
+                    }
+                }
+
+                // Only show the option if there are markdown files
+                if (hasMarkdownFiles) {
+                    // @ts-ignore
+                    menu.addItem(item => {
+                        item.setTitle("Continuous View")
+                            .setIcon("scroll")
+                            .onClick(async () => {
+                                console.log("Opening tab group in continuous view");
+                                await this.app.workspace.getLeaf("split").setViewState({
+                                    type: TABS_VIEW_TYPE,
+                                    active: true
+                                });
+                            });
+                    });
+                }
+            })
+        );
+
         // Add scroll icon button to active tab header
         this.registerEvent(
             this.app.workspace.on('active-leaf-change', async (leaf) => {
