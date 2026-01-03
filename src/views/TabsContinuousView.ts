@@ -22,6 +22,8 @@ export class TabsContinuousView extends ItemView {
     private allFiles: TFile[] = [];
     private visibleFiles: TFile[] = [];
 
+    private activeEditorFile: string | null = null; // Track which file is currently being edited
+
     constructor(leaf: WorkspaceLeaf) {
         super(leaf);
     }
@@ -44,6 +46,9 @@ export class TabsContinuousView extends ItemView {
         // Single continuous content area (NO separate tabs bar)
         this.contentContainer = root.createDiv("content-area");
         this.contentContainer.addClass("scroll-container");
+
+        // Enable double-click to edit files inline in continuous view
+        this.setupDoubleClickEditing();
 
         this.fileRenderer = new FileRenderer(this.app);
         this.scrollManager = new ScrollManager(this.contentContainer, {
@@ -129,28 +134,58 @@ export class TabsContinuousView extends ItemView {
     }
 
     private setupFileRemovalListener(): void {
-        // Listen for close button clicks on file containers
+        /**
+         * Use event delegation to handle close button clicks.
+         * This is more efficient than attaching listeners to each button.
+         */
         this.contentContainer!.addEventListener(
-            "file-remove-requested",
+            'click',
             async (e: Event) => {
-                const customEvent = e as CustomEvent;
-                const file = customEvent.detail?.file as TFile;
-                if (file) {
-                    console.log(
-                        `🗑️  TabsContinuousView: Removing ${file.basename}`
-                    );
-                    // Remove from allFiles
-                    this.allFiles = this.allFiles.filter(
-                        (f) => f.path !== file.path
-                    );
-                    this.visibleFiles = this.visibleFiles.filter(
-                        (f) => f.path !== file.path
-                    );
-                    // Re-render
-                    await this.renderContent(this.visibleFiles);
-                }
-            }
+                const target = e.target as HTMLElement;
+
+                // Only respond to clicks on close buttons
+                if (!target.classList.contains('file-close-btn')) return;
+
+                e.stopPropagation();
+                e.preventDefault();
+
+                // Walk up DOM to find the file-container
+                const container = target.closest('.file-container') as HTMLElement | null;
+                if (!container) return;
+
+                const filePath = container.dataset.filePath;
+                if (!filePath) return;
+
+                console.log(`🗑️  TabsContinuousView: Close button clicked on ${filePath}`);
+
+                // Remove from visibleFiles array
+                this.visibleFiles = this.visibleFiles.filter(f => f.path !== filePath);
+
+                // Remove container from DOM
+                container.remove();
+
+                // Update view title with new count
+                this.updateViewTitle();
+
+                console.log(`✓ File removed from view. Now showing ${this.visibleFiles.length} files`);
+            },
+            { capture: false }
         );
+    }
+
+    private updateViewTitle(): void {
+        /**
+         * Update the view title to show current file count.
+         * This is called after files are added/removed.
+         */
+        const displayText = `Continuous: Open Tabs (${this.visibleFiles.length})`;
+        // Helper to update title in leaf header
+        // Since getDisplayText uses this.visibleFiles.length, we might need to trigger update
+        // But the instruction says querySelector view-header-title
+        const titleEl = this.containerEl.closest('.workspace-leaf')?.querySelector('.view-header-title');
+        if (titleEl) {
+            titleEl.textContent = displayText;
+        }
     }
 
     private async renderContent(files: TFile[]): Promise<void> {
@@ -208,6 +243,7 @@ export class TabsContinuousView extends ItemView {
                 this.contentContainer!.appendChild(element);
             }
 
+            this.scrollManager!.ensureSentinelsObserved();
             this.visibleFiles.push(...newFiles);
             console.log(`   ✓ Now showing ${this.visibleFiles.length} files`);
         } else {
@@ -237,8 +273,154 @@ export class TabsContinuousView extends ItemView {
                 );
             }
 
+            this.scrollManager!.ensureSentinelsObserved();
             this.visibleFiles.unshift(...newFiles.reverse());
             console.log(`   ✓ Now showing ${this.visibleFiles.length} files`);
+        }
+    }
+
+    private setupDoubleClickEditing(): void {
+        /**
+         * Delegate double-click events from file content to activate inline editing.
+         * This allows users to edit files directly in continuous view without opening separate editor.
+         */
+        this.contentContainer!.addEventListener('dblclick', async (e: Event) => {
+            const target = e.target as HTMLElement;
+
+            // Walk up DOM tree to find the file-container that was double-clicked
+            let container = target.closest('.file-container') as HTMLElement | null;
+            if (!container) return;
+
+            const filePath = container.dataset.filePath;
+            if (!filePath) return;
+
+            // Get the file object from vault
+            const file = this.app.vault.getAbstractFileByPath(filePath) as TFile;
+            if (!file) return;
+
+            // Only allow editing markdown files
+            if (file.extension !== 'md') return;
+
+            console.log(`✏️  TabsContinuousView: Double-click detected on ${file.basename}`);
+
+            // Find the file-content div and activate inline editor
+            const fileContentDiv = container.querySelector('.file-content') as HTMLElement;
+            if (!fileContentDiv) return;
+
+            await this.activateInlineEditor(file, fileContentDiv, container);
+        });
+    }
+
+    private async activateInlineEditor(file: TFile, contentDiv: HTMLElement, container: HTMLElement): Promise<void> {
+        /**
+         * Create an inline textarea editor for the file.
+         * Supports:
+         * - Save with Ctrl+Enter or Cmd+Enter
+         * - Save by clicking outside
+         * - Escape to cancel
+         */
+
+        // Prevent activating editor if already editing this file
+        if (this.activeEditorFile === file.path) return;
+
+        this.activeEditorFile = file.path;
+        container.addClass('editing-active');
+
+        try {
+            // Read file content
+            const markdown = await this.app.vault.read(file);
+
+            // Create fallback editor (textarea)
+            const editorContainer = contentDiv.createDiv('fallback-editor-container');
+            const textarea = editorContainer.createEl('textarea', {
+                cls: 'fallback-inline-editor',
+                value: markdown
+            });
+
+            // Auto-focus and select all text
+            textarea.focus();
+            textarea.select();
+
+            // Create overlay div for outside-click detection
+            const overlay = document.createElement('div');
+            overlay.classList.add('focus-trap-overlay');
+            overlay.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 999998; background: transparent;';
+            document.body.appendChild(overlay);
+
+            // Handler: Save on Ctrl+Enter or Cmd+Enter
+            const saveHandler = async (e: KeyboardEvent) => {
+                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    await doSave();
+                    return;
+                }
+
+                // Escape to cancel
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    doCancel();
+                    return;
+                }
+            };
+
+            // Handler: Save on outside click
+            const clickHandler = async (e: MouseEvent) => {
+                if (e.target === overlay) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    await doSave();
+                }
+            };
+
+            // Save function
+            const doSave = async () => {
+                try {
+                    const newContent = textarea.value;
+                    await this.app.vault.modify(file, newContent);
+                    console.log(`✓ TabsContinuousView: Saved ${file.basename}`);
+
+                    // Clean up editor UI
+                    editorContainer.remove();
+                    overlay.remove();
+                    container.removeClass('editing-active');
+                    this.activeEditorFile = null;
+
+                    // Re-render file content
+                    contentDiv.empty();
+                    // Using public method from FileRenderer
+                    await this.fileRenderer!.renderFileContent(file, contentDiv);
+
+                } catch (error) {
+                    console.error('Error saving file:', error);
+                    new Notice(`Failed to save ${file.basename}: ${(error as Error).message}`);
+                }
+            };
+
+            // Cancel function
+            const doCancel = () => {
+                console.log('✓ TabsContinuousView: Edit cancelled');
+                editorContainer.remove();
+                overlay.remove();
+                container.removeClass('editing-active');
+                this.activeEditorFile = null;
+
+                // Re-render without changes
+                contentDiv.empty();
+                // Using public method from FileRenderer
+                this.fileRenderer!.renderFileContent(file, contentDiv);
+            };
+
+            // Attach listeners
+            textarea.addEventListener('keydown', saveHandler);
+            overlay.addEventListener('click', clickHandler);
+
+        } catch (error) {
+            console.error(`Error activating editor for ${file.basename}:`, error);
+            new Notice(`Failed to open editor: ${(error as Error).message}`);
+            container.removeClass('editing-active');
+            this.activeEditorFile = null;
         }
     }
 

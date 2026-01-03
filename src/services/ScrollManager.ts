@@ -59,6 +59,10 @@ export class ScrollManager {
     this.contentContainer.appendChild(this.bottomSentinel);
   }
 
+  setData(data: any[]): void {
+    // Placeholder for data management if needed in future
+  }
+
   onLoadMore(callback: ScrollLoadMoreCallback): void {
     this.onLoadMoreCallback = callback;
   }

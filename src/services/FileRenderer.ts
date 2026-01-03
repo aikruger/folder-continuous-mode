@@ -28,7 +28,7 @@ export class FileRenderer {
     });
     closeBtn.innerHTML = "×";
     closeBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
+        // e.stopPropagation(); // Allow bubbling for delegation in TabsContinuousView
         console.log(`🔴 FileRenderer: User clicked close on ${file.basename}`);
         // Dispatch custom event so the parent view can handle removal
         container.dispatchEvent(
@@ -43,7 +43,7 @@ export class FileRenderer {
     return container;
   }
 
-  private async renderFileContent(
+  public async renderFileContent(
     file: TFile,
     container: HTMLElement
   ): Promise<void> {
