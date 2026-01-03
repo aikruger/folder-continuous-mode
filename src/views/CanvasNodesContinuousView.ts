@@ -161,100 +161,314 @@ export class CanvasNodesContinuousView extends ItemView {
     }
 
     private async renderCanvasNode(node: any, canvasFile: TFile): Promise<HTMLElement | null> {
-        /**
-         * Render a single canvas node (file or text).
-         * Each node gets a close button, header, and content area.
-         */
-        const container = document.createElement('div')
-        container.classList.add('canvas-node-container')
-        container.dataset.nodeId = node.id
+        let nodeDiv = document.createElement("div");
+        nodeDiv.classList.add("canvas-node-container");
+        nodeDiv.dataset.nodeId = node.id;
 
-        // Create header
-        const header = container.createDiv('file-header')
-        const titleGroup = header.createDiv('file-title-group')
+        let headerDiv = nodeDiv.createDiv("file-header");
+        let titleGroupDiv = headerDiv.createDiv("file-title-group");
 
-        if (node.type === 'file') {
-            // ===== FILE NODE =====
-            // Reference to another file; show its full content
-
-            const referencedFile = this.app.vault.getAbstractFileByPath(node.file) as TFile
+        // ==========================================
+        // FILE NODE HANDLING
+        // ==========================================
+        if (node.type === "file") {
+            // Get the referenced file
+            let referencedFile = this.app.vault.getAbstractFileByPath(node.file) as TFile;
             if (!referencedFile) {
-                console.warn(`Canvas file node references missing file: ${node.file}`)
-                return null  // Skip if file doesn't exist
+                console.warn(`Canvas file node references missing file: ${node.file}`);
+                return null;
             }
 
-            const title = titleGroup.createEl('h3', {
+            // Create title
+            let titleEl = titleGroupDiv.createEl("h3", {
                 text: `📄 ${referencedFile.basename}`,
-                cls: 'file-title'
-            })
-            title.style.cursor = 'pointer'
-            title.addEventListener('click', () => {
-                this.app.workspace.getLeaf('tab').openFile(referencedFile)
-            })
+                cls: "file-title"
+            });
+            titleEl.style.cursor = "pointer";
+            titleEl.addEventListener("click", () => {
+                this.app.workspace.getLeaf("tab").openFile(referencedFile);
+            });
 
-            // Close button
-            const closeBtn = header.createEl('button', {
-                cls: 'file-close-btn',
-                attr: { 'aria-label': 'Remove node from view' }
-            })
-            closeBtn.innerHTML = '×'
-            closeBtn.addEventListener('click', (e) => {
-                e.stopPropagation()
-                console.log(`🗑️  Removing canvas node: ${node.id}`)
-                container.remove()
-                this.nodeElements.delete(node.id)
-            })
+            // Create close button
+            let closeBtn = headerDiv.createEl("button", {
+                cls: "file-close-btn",
+                attr: {
+                    "aria-label": "Remove node from view"
+                }
+            });
+            closeBtn.innerHTML = "×";
+            closeBtn.addEventListener("click", (event) => {
+                event.stopPropagation();
+                console.log(`🗑️ Removing canvas node: ${node.id}`);
+                nodeDiv.remove();
+                this.nodeElements.delete(node.id);
+            });
 
             // Render file content
-            const content = container.createDiv('file-content')
-            await this.renderFileContent(referencedFile, content)
+            let contentDiv = nodeDiv.createDiv("file-content");
+            await this.renderFileContent(referencedFile, contentDiv);
 
-            return container
+            // Add double-click editing support
+            contentDiv.addEventListener("dblclick", async (event) => {
+                event.preventDefault();
+                event.stopPropagation();
 
-        } else if (node.type === 'text') {
-            // ===== TEXT NODE =====
-            // Markdown text box from canvas
+                if (this.activeEditorNodeId === node.id) return;
+                this.activeEditorNodeId = node.id;
+                nodeDiv.addClass("editing-active");
 
-            const preview = node.text.substring(0, 60).replace(/\n/g, ' ')
-            const title = titleGroup.createEl('h3', {
-                text: `💬 ${preview}...`,
-                cls: 'file-title'
-            })
+                try {
+                    // Read file content
+                    let fileContent = await this.app.vault.read(referencedFile);
 
-            // Close button
-            const closeBtn = header.createEl('button', {
-                cls: 'file-close-btn',
-                attr: { 'aria-label': 'Remove node from view' }
-            })
-            closeBtn.innerHTML = '×'
-            closeBtn.addEventListener('click', (e) => {
-                e.stopPropagation()
-                console.log(`🗑️  Removing text node: ${node.id}`)
-                container.remove()
-                this.nodeElements.delete(node.id)
-            })
+                    // Create editor container
+                    let editorContainer = contentDiv.createDiv("file-node-editor");
+                    let textarea = editorContainer.createEl("textarea", {
+                        cls: "fallback-inline-editor canvas-file-editor",
+                        value: fileContent
+                    });
 
-            // Render text as markdown
-            const content = container.createDiv('file-content')
-            const textContainer = content.createDiv('canvas-text-node')
+                    textarea.focus();
+                    textarea.select();
+
+                    // Create overlay
+                    let overlay = document.createElement("div");
+                    overlay.classList.add("focus-trap-overlay");
+                    overlay.style.cssText = `
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        right: 0;
+                        bottom: 0;
+                        z-index: 999998;
+                        background: transparent;
+                    `;
+                    document.body.appendChild(overlay);
+
+                    // Save handler
+                    let saveFile = async () => {
+                        try {
+                            let newContent = textarea.value;
+                            await this.app.vault.modify(referencedFile, newContent);
+                            console.log(`✓ Saved canvas file node: ${referencedFile.basename}`);
+
+                            editorContainer.remove();
+                            overlay.remove();
+                            nodeDiv.removeClass("editing-active");
+                            this.activeEditorNodeId = null;
+
+                            contentDiv.empty();
+                            await this.renderFileContent(referencedFile, contentDiv);
+                        } catch (error) {
+                            console.error("Error saving file:", error);
+                            new Notice(`Failed to save ${referencedFile.basename}: ${(error as Error).message}`);
+                        }
+                    };
+
+                    // Cancel handler
+                    let cancelEdit = () => {
+                        editorContainer.remove();
+                        overlay.remove();
+                        nodeDiv.removeClass("editing-active");
+                        this.activeEditorNodeId = null;
+                    };
+
+                    // Key handler
+                    let onKeyDown = async (event: KeyboardEvent) => {
+                        if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                            event.preventDefault();
+                            await saveFile();
+                            return;
+                        }
+                        if (event.key === "Escape") {
+                            event.preventDefault();
+                            cancelEdit();
+                            return;
+                        }
+                    };
+
+                    // Overlay click handler
+                    let onOverlayClick = async (event: MouseEvent) => {
+                        if (event.target === overlay) {
+                            event.preventDefault();
+                            await saveFile();
+                        }
+                    };
+
+                    textarea.addEventListener("keydown", onKeyDown);
+                    overlay.addEventListener("click", onOverlayClick);
+
+                } catch (error) {
+                    console.error("Error activating editor:", error);
+                    new Notice(`Failed to open editor: ${(error as Error).message}`);
+                    nodeDiv.removeClass("editing-active");
+                    this.activeEditorNodeId = null;
+                }
+            });
+
+            return nodeDiv;
+
+        // ==========================================
+        // TEXT NODE HANDLING
+        // ==========================================
+        } else if (node.type === "text") {
+            // Create title from text preview
+            let textPreview = node.text.substring(0, 60).replace(/\n/g, " ");
+            let titleEl = titleGroupDiv.createEl("h3", {
+                text: `💬 ${textPreview}...`,
+                cls: "file-title"
+            });
+
+            // Create close button
+            let closeBtn = headerDiv.createEl("button", {
+                cls: "file-close-btn",
+                attr: {
+                    "aria-label": "Remove node from view"
+                }
+            });
+            closeBtn.innerHTML = "×";
+            closeBtn.addEventListener("click", (event) => {
+                event.stopPropagation();
+                console.log(`🗑️ Removing text node: ${node.id}`);
+                nodeDiv.remove();
+                this.nodeElements.delete(node.id);
+            });
+
+            // Create content div for rendered markdown
+            let contentDiv = nodeDiv.createDiv("file-content");
+            let textNodeDiv = contentDiv.createDiv("canvas-text-node");
 
             try {
+                // Render text as markdown
                 await MarkdownRenderer.renderMarkdown(
                     node.text,
-                    textContainer,
+                    textNodeDiv,
                     canvasFile.path,
                     // @ts-ignore
                     null
-                )
+                );
             } catch (error) {
-                console.error('Error rendering canvas text node:', error)
-                textContainer.setText(node.text)
+                console.error("Error rendering canvas text node:", error);
+                textNodeDiv.setText(node.text);
             }
 
-            return container
+            // Add double-click editing support
+            textNodeDiv.addEventListener("dblclick", async (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+
+                if (this.activeEditorNodeId === node.id) return;
+                this.activeEditorNodeId = node.id;
+                nodeDiv.addClass("editing-active");
+
+                try {
+                    // Create editor
+                    let editorContainer = contentDiv.createDiv("text-node-editor");
+                    let textarea = editorContainer.createEl("textarea", {
+                        cls: "fallback-inline-editor canvas-text-editor",
+                        value: node.text
+                    });
+
+                    textarea.focus();
+                    textarea.select();
+
+                    // Create overlay
+                    let overlay = document.createElement("div");
+                    overlay.classList.add("focus-trap-overlay");
+                    overlay.style.cssText = `
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        right: 0;
+                        bottom: 0;
+                        z-index: 999998;
+                        background: transparent;
+                    `;
+                    document.body.appendChild(overlay);
+
+                    // Save handler
+                    let saveText = async () => {
+                        try {
+                            node.text = textarea.value;
+
+                            // Update canvas data with new text
+                            this.canvasData.nodes = this.canvasData.nodes.map((n: any) =>
+                                n.id === node.id ? node : n
+                            );
+
+                            // Write updated canvas to vault
+                            await this.app.vault.modify(
+                                this.currentCanvas!,
+                                JSON.stringify(this.canvasData, null, 2)
+                            );
+
+                            console.log(`✓ Saved text node: ${node.id}`);
+
+                            editorContainer.remove();
+                            overlay.remove();
+                            nodeDiv.removeClass("editing-active");
+                            this.activeEditorNodeId = null;
+
+                            // Re-render the text node
+                            textNodeDiv.empty();
+                            await MarkdownRenderer.renderMarkdown(
+                                node.text,
+                                textNodeDiv,
+                                canvasFile.path,
+                                // @ts-ignore
+                                null
+                            );
+                        } catch (error) {
+                            console.error("Error saving text node:", error);
+                            new Notice("Failed to save text node");
+                        }
+                    };
+
+                    // Cancel handler
+                    let cancelEdit = () => {
+                        editorContainer.remove();
+                        overlay.remove();
+                        nodeDiv.removeClass("editing-active");
+                        this.activeEditorNodeId = null;
+                    };
+
+                    // Key handler
+                    let onKeyDown = async (event: KeyboardEvent) => {
+                        if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                            event.preventDefault();
+                            await saveText();
+                            return;
+                        }
+                        if (event.key === "Escape") {
+                            event.preventDefault();
+                            cancelEdit();
+                            return;
+                        }
+                    };
+
+                    // Overlay handler
+                    let onOverlayClick = async (event: MouseEvent) => {
+                        if (event.target === overlay) {
+                            event.preventDefault();
+                            await saveText();
+                        }
+                    };
+
+                    textarea.addEventListener("keydown", onKeyDown);
+                    overlay.addEventListener("click", onOverlayClick);
+
+                } catch (error) {
+                    console.error("Error activating editor:", error);
+                    new Notice(`Failed to open editor: ${(error as Error).message}`);
+                    nodeDiv.removeClass("editing-active");
+                    this.activeEditorNodeId = null;
+                }
+            });
+
+            return nodeDiv;
         }
 
-        return null
+        return null;
     }
 
     private async renderFileContent(file: TFile, container: HTMLElement): Promise<void> {

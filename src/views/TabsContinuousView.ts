@@ -312,115 +312,107 @@ export class TabsContinuousView extends ItemView {
     }
 
     private async activateInlineEditor(file: TFile, contentDiv: HTMLElement, container: HTMLElement): Promise<void> {
-        /**
-         * Create an inline textarea editor for the file.
-         * Supports:
-         * - Save with Ctrl+Enter or Cmd+Enter
-         * - Save by clicking outside
-         * - Escape to cancel
-         */
+        if (this.activeEditorFile !== file.path) {
+            this.activeEditorFile = file.path;
+            container.addClass("editing-active");
 
-        // Prevent activating editor if already editing this file
-        if (this.activeEditorFile === file.path) return;
+            try {
+                // Read current file content
+                let fileContent = await this.app.vault.read(file);
 
-        this.activeEditorFile = file.path;
-        container.addClass('editing-active');
+                // Create editor container
+                let editorContainer = contentDiv.createDiv("fallback-editor-container");
+                let textarea = editorContainer.createEl("textarea", {
+                    cls: "fallback-inline-editor",
+                    value: fileContent
+                });
 
-        try {
-            // Read file content
-            const markdown = await this.app.vault.read(file);
+                // Focus and select all text
+                textarea.focus();
+                textarea.select();
 
-            // Create fallback editor (textarea)
-            const editorContainer = contentDiv.createDiv('fallback-editor-container');
-            const textarea = editorContainer.createEl('textarea', {
-                cls: 'fallback-inline-editor',
-                value: markdown
-            });
+                // Create overlay to handle clicks outside
+                let overlay = document.createElement("div");
+                overlay.classList.add("focus-trap-overlay");
+                overlay.style.cssText = `
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    z-index: 999998;
+                    background: transparent;
+                `;
+                document.body.appendChild(overlay);
 
-            // Auto-focus and select all text
-            textarea.focus();
-            textarea.select();
+                // Define save handler
+                let saveFile = async () => {
+                    try {
+                        let newContent = textarea.value;
+                        await this.app.vault.modify(file, newContent);
+                        console.log(`✓ TabsContinuousView: Saved ${file.basename}`);
 
-            // Create overlay div for outside-click detection
-            const overlay = document.createElement('div');
-            overlay.classList.add('focus-trap-overlay');
-            overlay.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 999998; background: transparent;';
-            document.body.appendChild(overlay);
+                        // Clean up editor
+                        editorContainer.remove();
+                        overlay.remove();
+                        container.removeClass("editing-active");
+                        this.activeEditorFile = null;
 
-            // Handler: Save on Ctrl+Enter or Cmd+Enter
-            const saveHandler = async (e: KeyboardEvent) => {
-                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    await doSave();
-                    return;
-                }
+                        // Re-render file content
+                        contentDiv.empty();
+                        await this.fileRenderer!.renderFileContent(file, contentDiv);
+                    } catch (error) {
+                        console.error("Error saving file:", error);
+                        new Notice(`Failed to save ${file.basename}: ${(error as Error).message}`);
+                    }
+                };
 
-                // Escape to cancel
-                if (e.key === 'Escape') {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    doCancel();
-                    return;
-                }
-            };
-
-            // Handler: Save on outside click
-            const clickHandler = async (e: MouseEvent) => {
-                if (e.target === overlay) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    await doSave();
-                }
-            };
-
-            // Save function
-            const doSave = async () => {
-                try {
-                    const newContent = textarea.value;
-                    await this.app.vault.modify(file, newContent);
-                    console.log(`✓ TabsContinuousView: Saved ${file.basename}`);
-
-                    // Clean up editor UI
+                // Define cancel handler
+                let cancelEdit = () => {
+                    console.log(`✓ TabsContinuousView: Edit cancelled`);
                     editorContainer.remove();
                     overlay.remove();
-                    container.removeClass('editing-active');
+                    container.removeClass("editing-active");
                     this.activeEditorFile = null;
-
-                    // Re-render file content
                     contentDiv.empty();
-                    // Using public method from FileRenderer
-                    await this.fileRenderer!.renderFileContent(file, contentDiv);
+                    this.fileRenderer!.renderFileContent(file, contentDiv);
+                };
 
-                } catch (error) {
-                    console.error('Error saving file:', error);
-                    new Notice(`Failed to save ${file.basename}: ${(error as Error).message}`);
-                }
-            };
+                // Key handler for Ctrl+Enter and Escape
+                let onKeyDown = async (event: KeyboardEvent) => {
+                    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        await saveFile();
+                        return;
+                    }
+                    if (event.key === "Escape") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        cancelEdit();
+                        return;
+                    }
+                };
 
-            // Cancel function
-            const doCancel = () => {
-                console.log('✓ TabsContinuousView: Edit cancelled');
-                editorContainer.remove();
-                overlay.remove();
-                container.removeClass('editing-active');
+                // Click handler for overlay (click outside to save)
+                let onOverlayClick = async (event: MouseEvent) => {
+                    if (event.target === overlay) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        await saveFile();
+                    }
+                };
+
+                // Attach event listeners
+                textarea.addEventListener("keydown", onKeyDown);
+                overlay.addEventListener("click", onOverlayClick);
+
+            } catch (error) {
+                console.error(`Error activating editor for ${file.basename}:`, error);
+                new Notice(`Failed to open editor: ${(error as Error).message}`);
+                container.removeClass("editing-active");
                 this.activeEditorFile = null;
-
-                // Re-render without changes
-                contentDiv.empty();
-                // Using public method from FileRenderer
-                this.fileRenderer!.renderFileContent(file, contentDiv);
-            };
-
-            // Attach listeners
-            textarea.addEventListener('keydown', saveHandler);
-            overlay.addEventListener('click', clickHandler);
-
-        } catch (error) {
-            console.error(`Error activating editor for ${file.basename}:`, error);
-            new Notice(`Failed to open editor: ${(error as Error).message}`);
-            container.removeClass('editing-active');
-            this.activeEditorFile = null;
+            }
         }
     }
 
