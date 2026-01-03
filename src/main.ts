@@ -1,5 +1,6 @@
 import { Plugin, WorkspaceLeaf, TFolder } from 'obsidian';
 import { EnhancedContinuousView, ENHANCED_CONTINUOUS_VIEW_TYPE } from './view';
+import { TabsContinuousView, TABS_VIEW_TYPE } from "./views/TabsContinuousView";
 import { EnhancedContinuousModeSettings, DEFAULT_SETTINGS, EnhancedContinuousModeSettingTab } from './settings';
 import { FolderSuggestionModal } from './folderModal';
 
@@ -16,6 +17,10 @@ export default class EnhancedContinuousModePlugin extends Plugin {
             ENHANCED_CONTINUOUS_VIEW_TYPE,
             (leaf) => new EnhancedContinuousView(leaf, this)
         );
+        this.registerView(
+            TABS_VIEW_TYPE,
+            (leaf) => new TabsContinuousView(leaf)
+        );
 
         // Add commands
         this.addCommand({
@@ -26,6 +31,17 @@ export default class EnhancedContinuousModePlugin extends Plugin {
                     this.activateView(folder);
                 }).open();
             }
+        });
+        this.addCommand({
+            id: "open-tabs-continuous-view-new",
+            name: "Continuous View (NEW): Show open tabs",
+            callback: async () => {
+                const leaf = this.app.workspace.getLeaf("split");
+                await leaf.setViewState({
+                    type: TABS_VIEW_TYPE,
+                    active: true,
+                });
+            },
         });
 
         // Add ribbon icon
