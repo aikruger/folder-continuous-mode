@@ -7,19 +7,36 @@ export class FileRenderer {
     const container = document.createElement("div");
     container.classList.add("file-container");
     container.dataset.filePath = file.path;
-    container.dataset.fileName = file.path;
 
+    // Header with title + close button
     const header = container.createDiv("file-header");
-    const title = header.createEl("h2", {
-      text: file.basename,
-      cls: "file-title",
-    });
+    const titleGroup = header.createDiv("file-title-group");
 
+    const title = titleGroup.createEl("h2", {
+        text: file.basename,
+        cls: "file-title",
+    });
     title.style.cursor = "pointer";
     title.addEventListener("click", () => {
-      this.app.workspace.getLeaf("tab").openFile(file);
+        this.app.workspace.getLeaf("tab").openFile(file);
     });
 
+    // Close button (×)
+    const closeBtn = header.createEl("button", {
+        cls: "file-close-btn",
+        attr: { "aria-label": `Remove ${file.basename} from view` },
+    });
+    closeBtn.innerHTML = "×";
+    closeBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        console.log(`🔴 FileRenderer: User clicked close on ${file.basename}`);
+        // Dispatch custom event so the parent view can handle removal
+        container.dispatchEvent(
+            new CustomEvent("file-remove-requested", { detail: { file } })
+        );
+    });
+
+    // Content area
     const content = container.createDiv("file-content");
     await this.renderFileContent(file, content);
 

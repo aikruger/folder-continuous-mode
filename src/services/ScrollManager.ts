@@ -14,11 +14,7 @@ export class ScrollManager {
     this.bottomSentinel = this.createSentinel("bottom");
 
     // Insert sentinels
-    this.contentContainer.insertBefore(
-      this.topSentinel,
-      this.contentContainer.firstChild
-    );
-    this.contentContainer.appendChild(this.bottomSentinel);
+    this.ensureSentinelsObserved();
 
     this.setupObserver();
   }
@@ -51,6 +47,16 @@ export class ScrollManager {
 
     this.observer.observe(this.topSentinel);
     this.observer.observe(this.bottomSentinel);
+  }
+
+  ensureSentinelsObserved(): void {
+     // Re-insert sentinels if they are missing or need strictly to be at start/end
+     // Just moving them to start/end is safe even if they are already there
+     this.contentContainer.insertBefore(
+      this.topSentinel,
+      this.contentContainer.firstChild
+    );
+    this.contentContainer.appendChild(this.bottomSentinel);
   }
 
   onLoadMore(callback: ScrollLoadMoreCallback): void {
