@@ -372,33 +372,6 @@
     margin-top: 8px;
 }
 
-/* ===== TAB MENU BUTTON ===== */
-
-.continuous-view-btn {
-    background: transparent;
-    border: none;
-    color: inherit;
-    cursor: pointer;
-    padding: 4px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    opacity: 0.6;
-    transition: opacity 0.2s ease;
-    height: 24px;
-    width: 24px;
-}
-
-.continuous-view-btn:hover {
-    opacity: 1;
-}
-
-.continuous-view-btn svg {
-    width: 18px;
-    height: 18px;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-}
 
 /* ===== SCROLL CONTAINER (All Continuous Views) ===== */
 

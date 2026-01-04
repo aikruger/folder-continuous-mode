@@ -129,59 +129,6 @@ export default class EnhancedContinuousModePlugin extends Plugin {
             })
         );
 
-        // Add scroll icon button to active tab header
-        this.registerEvent(
-            this.app.workspace.on('active-leaf-change', async (leaf) => {
-                if (!leaf) return
-
-                // @ts-ignore
-                const tabHeaderEl = leaf.tabHeaderEl
-                if (!tabHeaderEl) return
-
-                // Only show for markdown files
-                if (leaf.view.getViewType() !== 'markdown') return
-
-                // Don't add button if it already exists
-                let continuousBtn = tabHeaderEl.querySelector('.continuous-view-btn')
-                if (continuousBtn) return
-
-                // Create button
-                const btn = tabHeaderEl.createEl('button', {
-                    cls: 'continuous-view-btn',
-                    attr: {
-                        'aria-label': 'Open in continuous view',
-                        'title': 'Show this tab in continuous mode'
-                    }
-                })
-
-                // Add scroll icon SVG
-                btn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2"><polyline points="12 3 20 7.5 20 16.5 12 21 4 16.5 4 7.5 12 3"></polyline><polyline points="12 12 20 7.5"></polyline><polyline points="12 12 12 21"></polyline><polyline points="12 12 4 7.5"></polyline></svg>'
-
-                btn.style.cssText = 'background: transparent; border: none; cursor: pointer; padding: 4px; display: flex; align-items: center; color: inherit; margin-left: 4px; opacity: 0.6; transition: opacity 0.2s;'
-
-                btn.addEventListener('click', async (e: Event) => {
-                    e.stopPropagation()
-                    e.preventDefault()
-
-                    const leaf = this.app.workspace.activeLeaf
-                    if (leaf) {
-                        await this.app.workspace.getLeaf('split').setViewState({
-                            type: TABS_VIEW_TYPE,
-                            active: true
-                        })
-                        // new Notice('Tab opened in continuous view')
-                    }
-                })
-
-                btn.addEventListener('mouseenter', () => {
-                    btn.style.opacity = '1'
-                })
-
-                btn.addEventListener('mouseleave', () => {
-                    btn.style.opacity = '0.6'
-                })
-            })
-        );
         this.addCommand({
             id: "open-canvas-continuous-view",
             name: "Continuous View: Show canvas files",
