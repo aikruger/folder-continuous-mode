@@ -507,30 +507,63 @@ export class EnhancedContinuousView extends ItemView {
     }
 
     private async createFileElement(file: TFile): Promise<HTMLElement> {
-        const fileContainer = createDiv('file-container');
-        fileContainer.dataset.fileName = file.path;
+        const container = document.createElement('div')
+        container.classList.add('file-container')
+        container.dataset.fileName = file.path
 
-        const headerEl = fileContainer.createDiv('file-header').createEl('h2', {
+        // Header with title + close button
+        const header = container.createDiv('file-header')
+
+        // Flex wrapper for title (allows close button to float right)
+        const titleGroup = header.createDiv('file-title-group')
+        const title = titleGroup.createEl('h2', {
             text: file.basename,
             cls: 'file-title'
-        });
-        headerEl.style.cursor = 'pointer';
-        headerEl.addEventListener('click', () =>
-            this.app.workspace.getLeaf('tab').openFile(file)
-        );
+        })
 
-        const contentEl = fileContainer.createDiv('file-content');
-        contentEl.addEventListener('dblclick', (event) => {
+        title.style.cursor = 'pointer'
+        title.addEventListener('click', () => {
+            this.app.workspace.getLeaf('tab').openFile(file)
+        })
+
+        // Close button (×)
+        const closeBtn = header.createEl('button', {
+            cls: 'file-close-btn',
+            attr: { 'aria-label': `Remove ${file.basename} from view` }
+        })
+        closeBtn.innerHTML = '×'
+        closeBtn.addEventListener('click', async (e) => {
+            e.stopPropagation()
+            e.preventDefault()
+            console.log(`🗑️  FolderContinuousView: Removing ${file.basename}`)
+
+            // Remove from loadedFiles array
+            this.loadedFiles = this.loadedFiles.filter(f => f.path !== file.path)
+
+            // Remove from DOM
+            container.remove()
+
+            // Unobserve from observer if available
+            if (this.activeFileObserver) {
+                this.activeFileObserver.unobserve(container)
+            }
+
+            // Update display count in title
+            this.updateDisplayText()
+        })
+
+        // File content area
+        const content = container.createDiv('file-content')
+        content.addEventListener('dblclick', (event) => {
             event.preventDefault();
             event.stopPropagation();
-            this.switchToEditorView(file, fileContainer);
+            this.switchToEditorView(file, container);
         });
-
-        await this.renderFileContent(file, contentEl);
+        await this.renderFileContent(file, content)
 
         // DON'T observe here - will be done after DOM insertion
         console.debug(`Created element for file: ${file.path}`);
-        return fileContainer;
+        return container
     }
 
     async switchToEditorView(file: TFile, fileContainer: Element) {
