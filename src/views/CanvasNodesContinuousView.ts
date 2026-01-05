@@ -222,28 +222,59 @@ export class CanvasNodesContinuousView extends ItemView {
 
             // Add double-click editing support
             contentDiv.addEventListener("dblclick", async (event) => {
-                event.preventDefault();
-                event.stopPropagation();
+                if (event.preventDefault(), event.stopPropagation(), this.activeEditorNodeId === node.id) return;
 
-                if (this.activeEditorNodeId === node.id) return;
                 this.activeEditorNodeId = node.id;
                 nodeDiv.addClass("editing-active");
 
                 try {
-                    // Read file content
+                    // 1. Read current file content FIRST
                     let fileContent = await this.app.vault.read(referencedFile);
+                    console.log(`✏️ Canvas file node editor: ${referencedFile.basename}, content length: ${fileContent.length}`);
 
-                    // Create editor container
-                    let editorContainer = contentDiv.createDiv("file-node-editor");
-                    let textarea = editorContainer.createEl("textarea", {
-                        cls: "fallback-inline-editor canvas-file-editor",
-                        value: fileContent
-                    });
+                    // 2. Clear the existing content display
+                    contentDiv.empty();
 
-                    textarea.focus();
-                    textarea.select();
+                    // 3. Create header with exit button
+                    let header = contentDiv.createDiv("editor-header");
+                    header.setAttribute("style", `
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        padding: 8px;
+                        background: var(--background-secondary);
+                        border-bottom: 1px solid var(--background-modifier-border);
+                    `);
 
-                    // Create overlay
+                    let exitBtn = header.createEl("button", {cls: "exit-editor-button", text: "Exit & Save"});
+                    exitBtn.style.cssText = `
+                        padding: 4px 12px;
+                        background: var(--interactive-accent);
+                        color: var(--text-on-accent);
+                        border: none;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        font-size: 12px;
+                    `;
+
+                    // 4. Create textarea with CORRECT content
+                    let editorDiv = contentDiv.createDiv("file-node-editor-container");
+                    let textarea = editorDiv.createEl("textarea", {cls: "fallback-inline-editor canvas-file-editor"});
+                    textarea.value = fileContent;  // ← Set value AFTER creation
+                    textarea.style.cssText = `
+                        width: 100%;
+                        min-height: 200px;
+                        max-height: 400px;
+                        padding: 8px;
+                        border: none;
+                        border-radius: 0;
+                        font-family: var(--font-monospace);
+                        background: var(--background-primary);
+                        color: var(--text-normal);
+                        resize: vertical;
+                    `;
+
+                    // 5. Create overlay for focus management
                     let overlay = document.createElement("div");
                     overlay.classList.add("focus-trap-overlay");
                     overlay.style.cssText = `
@@ -254,65 +285,64 @@ export class CanvasNodesContinuousView extends ItemView {
                         bottom: 0;
                         z-index: 999998;
                         background: transparent;
+                        pointer-events: none;
                     `;
                     document.body.appendChild(overlay);
 
-                    // Save handler
-                    let saveFile = async () => {
+                    // 6. Save handler
+                    let saveEditor = async () => {
                         try {
                             let newContent = textarea.value;
+                            console.log(`💾 Saving canvas file node: ${referencedFile.basename}, new length: ${newContent.length}`);
                             await this.app.vault.modify(referencedFile, newContent);
-                            console.log(`✓ Saved canvas file node: ${referencedFile.basename}`);
+                            console.log("✅ Save successful");
 
-                            editorContainer.remove();
-                            overlay.remove();
+                            // Clear editor and restore content display
                             nodeDiv.removeClass("editing-active");
                             this.activeEditorNodeId = null;
-
                             contentDiv.empty();
+
+                            // Re-render the file content
                             await this.renderFileContent(referencedFile, contentDiv);
-                        } catch (error) {
-                            console.error("Error saving file:", error);
-                            new Notice(`Failed to save ${referencedFile.basename}: ${(error as Error).message}`);
+
+                            // Clean up
+                            overlay.remove();
+                        } catch (err) {
+                            console.error("Error saving canvas file:", err);
+                            new Notice(`Failed to save: ${(err as Error).message}`);
                         }
                     };
 
-                    // Cancel handler
-                    let cancelEdit = () => {
-                        editorContainer.remove();
-                        overlay.remove();
-                        nodeDiv.removeClass("editing-active");
-                        this.activeEditorNodeId = null;
-                    };
-
-                    // Key handler
-                    let onKeyDown = async (event: KeyboardEvent) => {
-                        if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-                            event.preventDefault();
-                            await saveFile();
+                    // 7. Key handlers
+                    let handleKey = (e: KeyboardEvent) => {
+                        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                            e.preventDefault();
+                            saveEditor();
                             return;
                         }
-                        if (event.key === "Escape") {
-                            event.preventDefault();
-                            cancelEdit();
+                        if (e.key === "Escape") {
+                            e.preventDefault();
+                            // Cancel without saving
+                            nodeDiv.removeClass("editing-active");
+                            this.activeEditorNodeId = null;
+                            contentDiv.empty();
+                            this.renderFileContent(referencedFile, contentDiv);
+                            overlay.remove();
                             return;
                         }
                     };
 
-                    // Overlay click handler
-                    let onOverlayClick = async (event: MouseEvent) => {
-                        if (event.target === overlay) {
-                            event.preventDefault();
-                            await saveFile();
-                        }
-                    };
+                    // 8. Attach handlers
+                    textarea.addEventListener("keydown", handleKey);
+                    exitBtn.addEventListener("click", saveEditor);
 
-                    textarea.addEventListener("keydown", onKeyDown);
-                    overlay.addEventListener("click", onOverlayClick);
+                    // 9. Focus textarea
+                    textarea.focus();
+                    textarea.select();
 
-                } catch (error) {
-                    console.error("Error activating editor:", error);
-                    new Notice(`Failed to open editor: ${(error as Error).message}`);
+                } catch (err) {
+                    console.error(`Error opening canvas file editor: ${err}`);
+                    new Notice(`Failed to open editor: ${(err as Error).message}`);
                     nodeDiv.removeClass("editing-active");
                     this.activeEditorNodeId = null;
                 }
