@@ -1,7 +1,6 @@
 import { Plugin, WorkspaceLeaf, TFolder, Notice } from 'obsidian';
 import { EnhancedContinuousView, ENHANCED_CONTINUOUS_VIEW_TYPE } from './view';
 import { TabsContinuousView, TABS_VIEW_TYPE } from "./views/TabsContinuousView";
-import { CanvasContinuousView, CANVAS_VIEW_TYPE } from "./views/CanvasContinuousView";
 import { CanvasNodesContinuousView, CANVAS_NODES_VIEW_TYPE } from './views/CanvasNodesContinuousView';
 import { EnhancedContinuousModeSettings, DEFAULT_SETTINGS, EnhancedContinuousModeSettingTab } from './settings';
 import { FolderSuggestionModal } from './folderModal';
@@ -22,10 +21,6 @@ export default class EnhancedContinuousModePlugin extends Plugin {
         this.registerView(
             TABS_VIEW_TYPE,
             (leaf) => new TabsContinuousView(leaf, this)
-        );
-        this.registerView(
-            CANVAS_VIEW_TYPE,
-            (leaf) => new CanvasContinuousView(leaf, this)
         );
         this.registerView(
             CANVAS_NODES_VIEW_TYPE,
@@ -128,18 +123,6 @@ export default class EnhancedContinuousModePlugin extends Plugin {
                 }
             })
         );
-
-        this.addCommand({
-            id: "open-canvas-continuous-view",
-            name: "Continuous View: Show canvas files",
-            callback: async () => {
-                const leaf = this.app.workspace.getLeaf("split");
-                await leaf.setViewState({
-                    type: CANVAS_VIEW_TYPE,
-                    active: true,
-                });
-            },
-        });
 
         // Add ribbon icon
         this.addRibbonIcon('scroll', 'Enhanced Continuous Mode', () => {
