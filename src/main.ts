@@ -21,7 +21,7 @@ export default class EnhancedContinuousModePlugin extends Plugin {
         );
         this.registerView(
             TABS_VIEW_TYPE,
-            (leaf) => new TabsContinuousView(leaf)
+            (leaf) => new TabsContinuousView(leaf, this)
         );
         this.registerView(
             CANVAS_VIEW_TYPE,

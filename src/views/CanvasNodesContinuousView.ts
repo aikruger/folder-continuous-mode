@@ -134,13 +134,25 @@ export class CanvasNodesContinuousView extends ItemView {
             this.contentContainer!.empty()
             this.nodeElements.clear()
 
-            // Separate node types
-            const fileNodes = nodes.filter((n: any) => n.type === 'file' && n.file)
-            const textNodes = nodes.filter((n: any) => n.type === 'text' && n.text)
+            // SORT NODES: Left-to-right, top-to-bottom
+            const sortedNodes = nodes.sort((a: any, b: any) => {
+                // Primary sort: by X position (left-to-right)
+                const x1 = a.x || 0;
+                const x2 = b.x || 0;
+                if (Math.abs(x1 - x2) > 50) return x1 - x2;  // Different columns if X differs by >50
 
-            // Render file nodes first, then text nodes
-            // Can be changed to sort by Y position if desired
-            for (const node of [...fileNodes, ...textNodes]) {
+                // Secondary sort: by Y position (top-to-bottom) if in same column
+                const y1 = a.y || 0;
+                const y2 = b.y || 0;
+                return y1 - y2;
+            });
+
+            console.log(`📋 CanvasNodesContinuousView: Sorted ${sortedNodes.length} nodes by position`);
+
+            // Filter only valid nodes
+            const validNodes = sortedNodes.filter((n: any) => (n.type === 'file' && n.file) || (n.type === 'text' && n.text));
+
+            for (const node of validNodes) {
                 const element = await this.renderCanvasNode(node, canvasFile)
                 if (element) {
                     this.contentContainer!.appendChild(element)
@@ -149,9 +161,9 @@ export class CanvasNodesContinuousView extends ItemView {
             }
 
             // Setup scroll observer
-            this.scrollManager!.setData(fileNodes.concat(textNodes))
+            this.scrollManager!.setData(validNodes)
 
-            new Notice(`Loaded ${fileNodes.length} file nodes and ${textNodes.length} text nodes`)
+            new Notice(`Loaded ${validNodes.length} nodes (sorted by position)`)
 
         } catch (error) {
             console.error('Error rendering canvas:', error)
