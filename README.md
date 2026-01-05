@@ -1,94 +1,252 @@
-# Obsidian Sample Plugin
+# Enhanced Continuous Mode
 
-This is a sample plugin for Obsidian (https://obsidian.md).
+Enhanced Continuous Mode is an Obsidian plugin that provides multiple continuous scrolling views for different content types, allowing you to seamlessly browse through multiple files, tabs, and canvas nodes in a single, unified view.
 
-This project uses TypeScript to provide type checking and documentation.
-The repo depends on the latest plugin API (obsidian.d.ts) in TypeScript Definition format, which contains TSDoc comments describing what it does.
+## Features
 
-This sample plugin demonstrates some of the basic functionality the plugin API can do.
-- Adds a ribbon icon, which shows a Notice when clicked.
-- Adds a command "Open Sample Modal" which opens a Modal.
-- Adds a plugin setting tab to the settings page.
-- Registers a global click event and output 'click' to the console.
-- Registers a global interval which logs 'setInterval' to the console.
+### 🗂️ Folder Continuous View
+View all markdown files in a selected folder in a continuous scrolling interface. Perfect for reviewing related notes, reading through a project's documentation, or navigating long-form content spread across multiple files.
 
-## First time developing plugins?
+**Key capabilities:**
+- Browse entire folders without switching between files
+- Intelligent memory management with dynamic loading/unloading
+- File explorer synchronization (highlights current file as you scroll)
+- Double-click to edit files inline
+- Individual file close buttons to remove files from view
+- Scroll indicators showing available content above/below
 
-Quick starting guide for new plugin devs:
+### 📑 Tabs Continuous View
+Display all currently open tabs in a continuous scrollable format. Ideal for working sessions where you have multiple files open and want to see them all at once.
 
-- Check if [someone already developed a plugin for what you want](https://obsidian.md/plugins)! There might be an existing plugin similar enough that you can partner up with.
-- Make a copy of this repo as a template with the "Use this template" button (login to GitHub if you don't see it).
-- Clone your repo to a local development folder. For convenience, you can place this folder in your `.obsidian/plugins/your-plugin-name` folder.
-- Install NodeJS, then run `npm i` in the command line under your repo folder.
-- Run `npm run dev` to compile your plugin from `main.ts` to `main.js`.
-- Make changes to `main.ts` (or create new `.ts` files). Those changes should be automatically compiled into `main.js`.
-- Reload Obsidian to load the new version of your plugin.
-- Enable plugin in settings window.
-- For updates to the Obsidian API run `npm update` in the command line under your repo folder.
+**Key capabilities:**
+- View all open markdown tabs in one scrollable view
+- Automatically updates when tabs are opened or closed
+- Synchronized with file explorer highlighting
+- Inline editing with double-click
+- Shows tab count in view header
 
-## Releasing new releases
+### 🎨 Canvas Nodes Continuous View
+View all text and file nodes from a canvas file in a continuous reading format, sorted by position (left-to-right, top-to-bottom).
 
-- Update your `manifest.json` with your new version number, such as `1.0.1`, and the minimum Obsidian version required for your latest release.
-- Update your `versions.json` file with `"new-plugin-version": "minimum-obsidian-version"` so older versions of Obsidian can download an older version of your plugin that's compatible.
-- Create new GitHub release using your new version number as the "Tag version". Use the exact version number, don't include a prefix `v`. See here for an example: https://github.com/obsidianmd/obsidian-sample-plugin/releases
-- Upload the files `manifest.json`, `main.js`, `styles.css` as binary attachments. Note: The manifest.json file must be in two places, first the root path of your repository and also in the release.
-- Publish the release.
+**Key capabilities:**
+- Displays canvas content in a linear, readable format
+- Supports both text nodes (markdown) and file nodes (full file content)
+- Inline editing for both text and file nodes
+- Auto-updates when switching between canvas files
+- Preserves canvas structure while providing continuous reading flow
 
-> You can simplify the version bump process by running `npm version patch`, `npm version minor` or `npm version major` after updating `minAppVersion` manually in `manifest.json`.
-> The command will bump version in `manifest.json` and `package.json`, and add the entry for the new version to `versions.json`
+## Usage
 
-## Adding your plugin to the community plugin list
+### Opening Views
 
-- Check the [plugin guidelines](https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines).
-- Publish an initial version.
-- Make sure you have a `README.md` file in the root of your repo.
-- Make a pull request at https://github.com/obsidianmd/obsidian-releases to add your plugin.
+#### Command Palette
+Press `Ctrl/Cmd + P` to open the command palette, then search for:
+- **"Open folder in continuous view"** - Select a folder to view
+- **"Continuous View (NEW): Show open tabs"** - View all open tabs
+- **"Continuous View: Show canvas nodes"** - View canvas nodes (requires an active canvas file)
 
-## How to use
+#### Context Menus
+- **Folder context menu**: Right-click any folder in the file explorer → "Open in continuous view"
+- **Tab context menu**: Right-click any tab → "Show in Continuous View"
+- **Tab group menu**: Click the tab group dropdown (≡) → "Continuous View"
 
-- Clone this repo.
-- Make sure your NodeJS is at least v16 (`node --version`).
-- `npm i` or `yarn` to install dependencies.
-- `npm run dev` to start compilation in watch mode.
+#### Ribbon Icon
+Click the scroll icon (📜) in the left ribbon to open the folder selection modal.
 
-## Manually installing the plugin
+### Interacting with Content
 
-- Copy over `main.js`, `styles.css`, `manifest.json` to your vault `VaultFolder/.obsidian/plugins/your-plugin-id/`.
+#### Scrolling
+- Scroll naturally through the content
+- Scroll indicators (⇈ ⇊) show when more content is available
+- Files load/unload automatically as you scroll to maintain performance
 
-## Improve code quality with eslint (optional)
-- [ESLint](https://eslint.org/) is a tool that analyzes your code to quickly find problems. You can run ESLint against your plugin to find common bugs and ways to improve your code. 
-- To use eslint with this project, make sure to install eslint from terminal:
-  - `npm install -g eslint`
-- To use eslint to analyze this project use this command:
-  - `eslint main.ts`
-  - eslint will then create a report with suggestions for code improvement by file and line number.
-- If your source code is in a folder, such as `src`, you can use eslint with this command to analyze all files in that folder:
-  - `eslint ./src/`
+#### Editing
+- **Double-click** any file content to edit inline
+- Press `Ctrl/Cmd + Enter` to save changes
+- Press `Escape` to cancel editing
+- Click outside the editor to save and close
 
-## Funding URL
+#### File Management
+- Click the **×** button on any file header to remove it from the view
+- Click file titles to open them in a new tab
 
-You can include funding URLs where people who use your plugin can financially support it.
+## Settings
 
-The simple way is to set the `fundingUrl` field to your link in your `manifest.json` file:
+Access plugin settings via **Settings → Enhanced Continuous Mode**.
 
-```json
-{
-    "fundingUrl": "https://buymeacoffee.com"
-}
+### Initial File Count
+**Default:** 5
+
+The number of files to load when first opening a continuous view. Lower values improve initial load time; higher values reduce scrolling triggers.
+
+### Max File Count
+**Default:** 7
+
+Maximum number of files kept in memory simultaneously. When this limit is reached, files at the opposite end of your scroll position are unloaded to maintain performance.
+
+### Load/Unload Count
+**Default:** 2
+
+How many files to load or unload at once when scrolling reaches the beginning or end of loaded content. Higher values reduce scrolling interruptions but increase memory usage.
+
+### Scroll Threshold
+**Default:** 0.1
+
+Sensitivity for triggering file loading (0.0 to 1.0). Lower values load content earlier; higher values wait until you're closer to the edge.
+
+## Installation
+
+### From Obsidian Community Plugins (Recommended)
+1. Open Obsidian Settings
+2. Navigate to **Community plugins**
+3. Click **Browse** and search for "Enhanced Continuous Mode"
+4. Click **Install**, then **Enable**
+
+### Manual Installation
+1. Download the latest release from [GitHub Releases](https://github.com/aikruger/folder-continuous-mode/releases)
+2. Extract `main.js`, `manifest.json`, and `styles.css` into your vault's plugins folder:
+   ```
+   VaultFolder/.obsidian/plugins/enhanced-continuous-mode/
+   ```
+3. Reload Obsidian
+4. Enable the plugin in **Settings → Community plugins**
+
+## Development
+
+### Prerequisites
+- Node.js (v16 or later recommended)
+- npm (comes with Node.js)
+- Git
+
+### Setup
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/aikruger/folder-continuous-mode.git
+   cd folder-continuous-mode
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Build the plugin:
+   ```bash
+   npm run build
+   ```
+
+### Development Workflow
+
+#### Watch Mode
+For active development with automatic rebuilding:
+```bash
+npm run dev
 ```
 
-If you have multiple URLs, you can also do:
+This runs esbuild in watch mode, automatically recompiling when you save changes.
 
-```json
-{
-    "fundingUrl": {
-        "Buy Me a Coffee": "https://buymeacoffee.com",
-        "GitHub Sponsor": "https://github.com/sponsors",
-        "Patreon": "https://www.patreon.com/"
-    }
-}
+#### Testing in Obsidian
+1. Build the plugin (or run in watch mode)
+2. Copy `main.js`, `manifest.json`, and `styles.css` to your vault's plugin folder:
+   ```
+   /path/to/vault/.obsidian/plugins/enhanced-continuous-mode/
+   ```
+3. Reload Obsidian or use the "Reload app without saving" command
+4. Enable the plugin in settings if not already enabled
+
+#### Production Build
+```bash
+npm run build
 ```
 
-## API Documentation
+This runs TypeScript type checking followed by an optimized esbuild production build.
 
-See https://github.com/obsidianmd/obsidian-api
+### Project Structure
+
+```
+src/
+  main.ts                  # Plugin entry point, lifecycle management
+  view.ts                  # Folder Continuous View implementation
+  settings.ts              # Settings interface and UI
+  folderModal.ts           # Folder selection modal
+  types.ts                 # TypeScript type definitions
+  views/
+    TabsContinuousView.ts         # Tabs Continuous View
+    CanvasNodesContinuousView.ts  # Canvas Nodes Continuous View
+  services/
+    FileRenderer.ts        # File content rendering service
+    FileHighlighter.ts     # File explorer highlighting
+    ScrollManager.ts       # Infinite scroll management
+    TabsManager.ts         # Tab tracking service
+```
+
+## Technical Architecture
+
+### View Types
+The plugin registers three custom Obsidian view types:
+- `enhanced-continuous-view` - Folder view
+- `tabs-continuous-view` - Tabs view
+- `canvas-nodes-continuous-view` - Canvas nodes view
+
+Each view extends Obsidian's `ItemView` class and can be opened in any leaf (pane).
+
+### Memory Management
+To prevent performance issues with large folders or many tabs, the plugin implements:
+
+1. **Dynamic Loading**: Files load on-demand as you scroll
+2. **Automatic Unloading**: Oldest files are removed when max capacity is reached
+3. **Intersection Observers**: Efficient detection of scroll position and visible files
+4. **File Highlighting**: Automatic explorer highlighting follows your scroll position
+
+### Services
+- **FileRenderer**: Handles markdown rendering using Obsidian's native renderer
+- **ScrollManager**: Manages infinite scroll behavior and viewport state
+- **FileHighlighter**: Synchronizes file explorer highlighting with scroll position
+- **TabsManager**: Tracks and monitors open tabs
+
+## Roadmap
+
+### Planned Features
+- [ ] Search within continuous view
+- [ ] Customizable sorting options (alphabetical, modified date, created date)
+- [ ] Tag-based continuous views
+- [ ] Export continuous view to single markdown file
+- [ ] Bookmark positions within continuous views
+- [ ] Keyboard shortcuts for navigation
+- [ ] Custom CSS themes for view appearance
+
+### Known Issues
+- TypeScript compilation shows type errors (functionality works correctly)
+- Canvas node editing requires double-click (single-click behavior varies)
+- Very large canvases (>100 nodes) may experience initial load delay
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit issues, feature requests, or pull requests.
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Credits
+
+Created by [Jules](https://github.com/aikruger)
+
+Built with the [Obsidian Plugin API](https://github.com/obsidianmd/obsidian-api)
+
+## Support
+
+If you find this plugin helpful, consider:
+- Starring the repository on GitHub
+- Sharing it with other Obsidian users
+- Reporting bugs or suggesting features via GitHub Issues
+
+---
+
+**Note**: This plugin requires Obsidian v0.15.0 or higher.
