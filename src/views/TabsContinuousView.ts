@@ -116,6 +116,16 @@ export class TabsContinuousView extends ItemView {
         const uniqueFiles = Array.from(new Set(tabFiles.map(f => f.path)))
             .map(path => tabFiles.find(f => f.path === path)!);
 
+        // Sort by tab left position (visual order)
+        const leaves = this.app.workspace.getLeavesOfType("markdown");
+        uniqueFiles.sort((a, b) => {
+            // @ts-ignore
+            const indexA = leaves.findIndex(leaf => leaf.view?.file?.path === a.path);
+            // @ts-ignore
+            const indexB = leaves.findIndex(leaf => leaf.view?.file?.path === b.path);
+            return indexA - indexB;
+        });
+
         this.allFiles = uniqueFiles;
 
         if (this.allFiles.length === 0) {
@@ -164,17 +174,19 @@ export class TabsContinuousView extends ItemView {
     public setupIntersectionObserver() {
         let options = {
             root: this.containerEl.children[1],
-            rootMargin: "50px 0px",
-            threshold: 0.1
+            rootMargin: "200px 0px",
+            threshold: 0.01
         };
 
         this.intersectionObserver = new IntersectionObserver(entries => {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
                     if (entry.target === this.topSentinel && this.currentIndex > 0) {
+                        console.debug("📤 Loading previous files from top");
                         this.loadPreviousFilesDebounced();
                     }
                     if (entry.target === this.bottomSentinel) {
+                        console.debug("📥 Loading next files from bottom");
                         this.loadNextFilesDebounced();
                     }
                 }
@@ -253,9 +265,9 @@ export class TabsContinuousView extends ItemView {
     }
 
     private async loadInitialFiles() {
-        const fileCount = Math.min(this.plugin.settings.initialFileCount, this.allFiles.length);
+        // Load ALL files, not limited by initialFileCount
         this.currentIndex = 0;
-        this.loadedFiles = this.allFiles.slice(0, fileCount);
+        this.loadedFiles = this.allFiles;
 
         await this.renderFiles();
         this.updateScrollElements();
